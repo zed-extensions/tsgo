@@ -1,0 +1,12 @@
+id = "tsgo"
+name = "tsgo"
+description = "Native implementation of TypeScript compiler."
+version = "0.0.1"
+schema_version = 1
+authors = ["Zed Industries <hello@zed.dev>"]
+repository = "https://github.com/zed-extensions/tsgo"
+
+
+[language_servers.tsgo]
+name = "tsgo"
+languages = ["TypeScript", "TSX", "JavaScript", "JSX"]

@@ -1,0 +1,11 @@
+[package]
+name = "tsgo"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/tsgo.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.5.0"
