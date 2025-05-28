@@ -96,9 +96,9 @@ impl zed::Extension for TsGoExtension {
 
     fn language_server_command(
         &mut self,
-        language_server_id: &zed::LanguageServerId,
-        worktree: &zed::Worktree,
-    ) -> zed::Result<zed::Command> {
+        language_server_id: &zed_extension_api::LanguageServerId,
+        worktree: &zed_extension_api::Worktree,
+    ) -> zed_extension_api::Result<zed_extension_api::Command> {
         let env = LspSettings::for_worktree("tsgo", worktree)
             .ok()
             .and_then(|s| s.binary)
@@ -118,9 +118,9 @@ impl zed::Extension for TsGoExtension {
 
     fn language_server_initialization_options(
         &mut self,
-        server_id: &zed::LanguageServerId,
-        worktree: &zed::Worktree,
-    ) -> zed::Result<Option<zed::serde_json::Value>> {
+        server_id: &zed_extension_api::LanguageServerId,
+        worktree: &zed_extension_api::Worktree,
+    ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
         let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
             .ok()
             .and_then(|lsp_settings| lsp_settings.initialization_options.clone())
@@ -130,9 +130,9 @@ impl zed::Extension for TsGoExtension {
 
     fn language_server_workspace_configuration(
         &mut self,
-        server_id: &zed::LanguageServerId,
-        worktree: &zed::Worktree,
-    ) -> zed::Result<Option<zed::serde_json::Value>> {
+        server_id: &zed_extension_api::LanguageServerId,
+        worktree: &zed_extension_api::Worktree,
+    ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
         let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
             .ok()
             .and_then(|lsp_settings| lsp_settings.settings.clone())
