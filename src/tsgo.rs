@@ -1,93 +1,111 @@
 use std::fs;
 
-use zed_extension_api::{self as zed, LanguageServerId, Result, settings::LspSettings};
+use package_utils::{Package, ServerType, get_native_package, get_node_package};
+use zed_extension_api::{self as zed, Result, settings::LspSettings};
+
+mod package_utils;
 
 struct TsGoExtension {
-    cached_binary_path: Option<String>,
+    cached_package: Option<Package>,
 }
-const SERVER_PATH: &str = "node_modules/@typescript/native-preview/bin/tsgo.js";
-const PACKAGE_NAME: &str = "@typescript/native-preview";
 
 impl TsGoExtension {
-    fn server_exists(&self) -> bool {
-        fs::metadata(SERVER_PATH).map_or(false, |stat| stat.is_file())
+    fn server_exists(&self, package: &Package) -> bool {
+        fs::metadata(package.server_path.clone()).map_or(false, |stat| stat.is_file())
     }
-    fn binary_path(&mut self, id: &LanguageServerId) -> Result<String> {
-        let server_exists = self.server_exists();
-        if self.cached_binary_path.is_some() && server_exists {
-            return Ok(SERVER_PATH.to_string());
+
+    fn binary_path(&mut self, package: &Package, id: &zed::LanguageServerId) -> Result<Package> {
+        let server_exists = self.server_exists(package);
+        if self
+            .cached_package
+            .as_ref()
+            .is_some_and(|cached_package| cached_package == package)
+            && server_exists
+        {
+            return Ok(package.clone());
         }
 
         zed::set_language_server_installation_status(
             id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
         );
-        let version = zed::npm_package_latest_version(PACKAGE_NAME)?;
+        let version = zed::npm_package_latest_version(&package.package_name)?;
 
         if !server_exists
-            || zed::npm_package_installed_version(PACKAGE_NAME)?.as_ref() != Some(&version)
+            || zed::npm_package_installed_version(&package.package_name)?.as_ref() != Some(&version)
         {
             zed::set_language_server_installation_status(
                 id,
                 &zed::LanguageServerInstallationStatus::Downloading,
             );
-            let result = zed::npm_install_package(PACKAGE_NAME, &version);
+            let result = zed::npm_install_package(&package.package_name, &version);
             match result {
                 Ok(()) => {
-                    if !self.server_exists() {
+                    if !self.server_exists(package) {
                         Err(format!(
-                            "installed package '{PACKAGE_NAME}' did not contain expected path '{SERVER_PATH}'",
+                            "installed package '{}' did not contain expected path '{}'",
+                            &package.package_name, &package.server_path
                         ))?;
                     }
                 }
                 Err(error) => {
-                    if !self.server_exists() {
+                    if !self.server_exists(package) {
                         Err(error)?;
                     }
                 }
             }
         }
-        Ok(SERVER_PATH.to_string())
+        Ok(package.clone())
     }
 }
+
 impl zed::Extension for TsGoExtension {
     fn new() -> Self {
         Self {
-            cached_binary_path: None,
+            cached_package: None,
         }
     }
 
     fn language_server_command(
         &mut self,
-        language_server_id: &zed_extension_api::LanguageServerId,
-        worktree: &zed_extension_api::Worktree,
-    ) -> zed_extension_api::Result<zed_extension_api::Command> {
+        language_server_id: &zed::LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> zed::Result<zed::Command> {
         let env = LspSettings::for_worktree("tsgo", worktree)
             .ok()
             .and_then(|s| s.binary)
             .and_then(|binary| binary.env);
-        let command = self.binary_path(language_server_id)?;
-        self.cached_binary_path = Some(command.clone());
-        Ok(zed::Command {
-            command: zed::node_binary_path()?,
-            args: vec![
-                std::env::current_dir()
-                    .map_err(|e| e.to_string())?
-                    .join(command)
-                    .to_string_lossy()
-                    .into_owned(),
-                "--lsp".into(),
-                "--stdio".into(),
-            ],
-            env: env.into_iter().flat_map(|env| env.into_iter()).collect(),
+        let pkg = get_native_package()
+            .and_then(|package| self.binary_path(&package, language_server_id).ok())
+            .map_or_else(
+                || self.binary_path(&get_node_package(), language_server_id),
+                |x| Ok(x),
+            )?;
+        self.cached_package = Some(pkg.clone());
+        let filepath = std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(pkg.server_path)
+            .to_string_lossy()
+            .into_owned();
+        Ok(match pkg.server_type {
+            ServerType::Native => zed::Command {
+                command: filepath,
+                args: vec!["--lsp".into(), "--stdio".into()],
+                env: env.into_iter().flat_map(|env| env.into_iter()).collect(),
+            },
+            ServerType::Node => zed::Command {
+                command: zed::node_binary_path()?,
+                args: vec![filepath, "--lsp".into(), "--stdio".into()],
+                env: env.into_iter().flat_map(|env| env.into_iter()).collect(),
+            },
         })
     }
 
     fn language_server_initialization_options(
         &mut self,
-        server_id: &zed_extension_api::LanguageServerId,
-        worktree: &zed_extension_api::Worktree,
-    ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
+        server_id: &zed::LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> zed::Result<Option<zed::serde_json::Value>> {
         let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
             .ok()
             .and_then(|lsp_settings| lsp_settings.initialization_options.clone())
@@ -97,9 +115,9 @@ impl zed::Extension for TsGoExtension {
 
     fn language_server_workspace_configuration(
         &mut self,
-        server_id: &zed_extension_api::LanguageServerId,
-        worktree: &zed_extension_api::Worktree,
-    ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
+        server_id: &zed::LanguageServerId,
+        worktree: &zed::Worktree,
+    ) -> zed::Result<Option<zed::serde_json::Value>> {
         let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
             .ok()
             .and_then(|lsp_settings| lsp_settings.settings.clone())

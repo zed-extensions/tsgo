@@ -6,7 +6,11 @@ schema_version = 1
 authors = ["Zed Industries <hello@zed.dev>"]
 repository = "https://github.com/zed-extensions/tsgo"
 
-
 [language_servers.tsgo]
 name = "tsgo"
 languages = ["TypeScript", "TSX", "JavaScript", "JSX"]
+
+[[capabilities]]
+kind = "process:exec"
+command = "node"
+args = ["-p", "JSON.stringify(process)"]
