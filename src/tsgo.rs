@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 
 use zed_extension_api::{self as zed, LanguageServerId, Result, settings::LspSettings};
 
@@ -8,11 +9,65 @@ struct TsGoExtension {
 }
 
 const PACKAGE_NAME: &str = "@typescript/native-preview";
-const BIN_PATH: &str = "node_modules/.bin/tsgo";
 
 impl TsGoExtension {
+    fn get_platform_package_name() -> Result<String> {
+        let (platform, arch) = zed::current_platform();
+
+        let os = match platform {
+            zed::Os::Mac => "darwin",
+            zed::Os::Linux => "linux",
+            zed::Os::Windows => "win32",
+        };
+
+        let arch = match arch {
+            zed::Architecture::Aarch64 => "arm64",
+            zed::Architecture::X86 => {
+                return Err(
+                    "32-bit x86 architecture is not supported. Please use a 64-bit system."
+                        .to_string(),
+                );
+            }
+            zed::Architecture::X8664 => "x64",
+        };
+
+        Ok(format!("@typescript/native-preview-{}-{}", os, arch))
+    }
+
+    fn get_native_binary_path() -> Result<PathBuf> {
+        let platform_package = Self::get_platform_package_name()?;
+
+        // Try to find the platform-specific package
+        let package_path = PathBuf::from("node_modules").join(&platform_package);
+
+        if !package_path.exists() {
+            return Err(format!(
+                "Platform package {} not found at {}. Make sure the correct platform-specific package is installed.",
+                platform_package,
+                package_path.display()
+            ));
+        }
+
+        let (platform, _) = zed::current_platform();
+        let binary_name = match platform {
+            zed::Os::Windows => "tsgo.exe",
+            _ => "tsgo",
+        };
+
+        let binary_path = package_path.join("lib").join(binary_name);
+
+        if !binary_path.exists() {
+            return Err(format!(
+                "Native binary not found at {}. The platform package may be corrupted.",
+                binary_path.display()
+            ));
+        }
+
+        Ok(binary_path)
+    }
+
     fn binary_exists(&self) -> bool {
-        fs::metadata(BIN_PATH).map_or(false, |stat| stat.is_file())
+        Self::get_native_binary_path().is_ok()
     }
 
     fn get_installed_version(&self) -> Option<String> {
@@ -54,15 +109,11 @@ impl TsGoExtension {
             }
         }
 
-        if !self.binary_exists() {
-            return Err(format!(
-                "installed package did not contain expected binary at '{}'",
-                BIN_PATH
-            ));
-        }
+        let binary_path = Self::get_native_binary_path()
+            .map_err(|e| format!("Failed to locate native binary after installation: {}", e))?;
 
         // Cache the successful installation
-        self.cached_binary_path = Some(BIN_PATH.to_string());
+        self.cached_binary_path = Some(binary_path.to_string_lossy().to_string());
         self.cached_version = Some(latest_version);
 
         Ok(())
@@ -79,7 +130,10 @@ impl TsGoExtension {
         // Install or update package as needed
         self.install_package(id)?;
 
-        Ok(BIN_PATH.to_string())
+        let binary_path = Self::get_native_binary_path()
+            .map_err(|e| format!("Failed to locate native binary: {}", e))?;
+
+        Ok(binary_path.to_string_lossy().to_string())
     }
 }
 
