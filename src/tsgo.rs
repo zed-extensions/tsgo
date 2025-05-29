@@ -2,17 +2,21 @@ use std::fs;
 
 use zed_extension_api::{self as zed, Result, settings::LspSettings};
 
-struct CurrentPlatform(zed::Os, zed::Architecture);
+struct TsGoExtension {
+    cached_binary_path: Option<String>,
+}
 
-impl CurrentPlatform {
-    pub fn get_package_name_and_server_path(&self) -> Result<(String, String)> {
-        let platform = match self.0 {
+impl TsGoExtension {
+    fn get_package_name_and_server_path() -> Result<(String, String)> {
+        let (os, architecture) = zed::current_platform();
+
+        let platform = match os {
             zed::Os::Linux => "linux",
             zed::Os::Mac => "darwin",
             zed::Os::Windows => "win32",
         };
 
-        let arch = match self.1 {
+        let arch = match architecture {
             zed::Architecture::Aarch64 => "arm64",
             zed::Architecture::X86 => return Err("32-bit architecture is not supported".into()),
             zed::Architecture::X8664 => "x64",
@@ -21,30 +25,18 @@ impl CurrentPlatform {
         let package_name = format!("@typescript/native-preview-{platform}-{arch}");
         let server_path = format!(
             "node_modules/{package_name}/lib/tsgo{}",
-            if self.0 == zed::Os::Windows {
-                ".exe"
-            } else {
-                ""
-            }
+            if os == zed::Os::Windows { ".exe" } else { "" }
         );
 
         Ok((package_name, server_path))
     }
-}
 
-struct TsGoExtension {
-    current_platform: CurrentPlatform,
-    cached_binary_path: Option<String>,
-}
-
-impl TsGoExtension {
     fn server_exists(&self, server_path: &str) -> bool {
         fs::metadata(server_path).map_or(false, |stat| stat.is_file())
     }
 
     fn binary_path(&mut self, id: &zed::LanguageServerId) -> Result<String> {
-        let (package_name, server_path) =
-            self.current_platform.get_package_name_and_server_path()?;
+        let (package_name, server_path) = TsGoExtension::get_package_name_and_server_path()?;
         let server_exists = self.server_exists(&server_path);
         if self.cached_binary_path.is_some() && server_exists {
             return Ok(server_path.clone());
@@ -86,10 +78,7 @@ impl TsGoExtension {
 
 impl zed::Extension for TsGoExtension {
     fn new() -> Self {
-        let (os, arch) = zed::current_platform();
-
         Self {
-            current_platform: CurrentPlatform(os, arch),
             cached_binary_path: None,
         }
     }
