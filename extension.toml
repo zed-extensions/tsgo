@@ -9,4 +9,11 @@ repository = "https://github.com/zed-extensions/tsgo"
 
 [language_servers.tsgo]
 name = "tsgo"
+# TSGo determines ScriptKind from LSP languageId (textDocument/didOpen).
+# ScriptKind enum definition: https://github.com/microsoft/typescript-go/blob/main/internal/parser/parser.go (search for "type ScriptKind")
+# Panic location (initializeState): https://github.com/microsoft/typescript-go/blob/main/internal/parser/parser.go#L210
+# Maps Zed's language names to standard LSP languageId values:
+#   typescript -> ScriptKindTS, typescriptreact -> ScriptKindTSX,
+#   javascript -> ScriptKindJS, javascriptreact -> ScriptKindJSX
+language_ids = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
 languages = ["TypeScript", "TSX", "JavaScript", "JSX"]
