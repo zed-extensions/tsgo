@@ -79,6 +79,28 @@ This is useful for:
 - Testing specific versions
 - Avoiding automatic updates that might introduce issues
 
+#### Custom Binary Path
+
+By default, the extension automatically installs and manages the `tsgo` binary. If you prefer to use a custom binary (e.g., a locally built version), you can specify the folder containing the binary in your settings:
+
+```json
+{
+  "lsp": {
+    "tsgo": {
+      "settings": {
+        "tsdk": "/path/to/folder/containing/tsgo"
+      }
+    }
+  }
+}
+```
+
+The `tsdk` setting should point to the folder containing the `tsgo` binary (not the binary itself) and can be either:
+- An absolute path (e.g., `/usr/local/bin`)
+- A relative path from your workspace root (e.g., `./bin`)
+
+When a custom `tsdk` path is configured, the extension will skip automatic installation and use the binary from your specified folder instead.
+
 ## 🧪 Status
 
 This extension is in early development stages. While it offers significant performance benefits, some features may be incomplete or unstable. Contributions and feedback are welcome to improve its functionality.

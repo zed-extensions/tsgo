@@ -13,6 +13,7 @@ const PACKAGE_NAME: &str = "@typescript/native-preview";
 #[derive(Debug, Default)]
 struct TsGoSettings {
     package_version: Option<String>,
+    tsdk: Option<String>,
 }
 
 impl TsGoSettings {
@@ -24,13 +25,29 @@ impl TsGoSettings {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        let tsdk = settings
+            .settings
+            .as_ref()
+            .and_then(|s| s.get("tsdk"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         Self {
             package_version,
+            tsdk,
         }
     }
 }
 
 impl TsGoExtension {
+    fn get_binary_name() -> &'static str {
+        let (platform, _) = zed::current_platform();
+        match platform {
+            zed::Os::Windows => "tsgo.exe",
+            _ => "tsgo",
+        }
+    }
+
     fn get_platform_package_name() -> Result<String> {
         let (platform, arch) = zed::current_platform();
 
@@ -54,6 +71,22 @@ impl TsGoExtension {
         Ok(format!("@typescript/native-preview-{}-{}", os, arch))
     }
 
+    fn get_binary_path_from_settings(settings: &TsGoSettings, worktree: &zed::Worktree) -> Result<PathBuf> {
+        let tsdk_str = settings.tsdk
+            .as_ref()
+            .ok_or_else(|| "No tsdk settings found".to_string())?;
+
+        let tsdk_path = if tsdk_str.starts_with('/') {
+            PathBuf::from(tsdk_str)
+        } else {
+            PathBuf::from(worktree.root_path()).join(tsdk_str)
+        };
+
+        let binary_path = tsdk_path.join(Self::get_binary_name());
+
+        Ok(binary_path)
+    }
+
     fn get_native_binary_path() -> Result<PathBuf> {
         let platform_package = Self::get_platform_package_name()?;
 
@@ -68,13 +101,7 @@ impl TsGoExtension {
             ));
         }
 
-        let (platform, _) = zed::current_platform();
-        let binary_name = match platform {
-            zed::Os::Windows => "tsgo.exe",
-            _ => "tsgo",
-        };
-
-        let binary_path = package_path.join("lib").join(binary_name);
+        let binary_path = package_path.join("lib").join(Self::get_binary_name());
 
         if !binary_path.exists() {
             return Err(format!(
@@ -84,6 +111,11 @@ impl TsGoExtension {
         }
 
         Ok(binary_path)
+    }
+
+    fn get_binary_path(settings: &TsGoSettings, worktree: &zed::Worktree) -> Result<PathBuf> {
+        Self::get_binary_path_from_settings(settings, worktree)
+            .or_else(|_| Self::get_native_binary_path())
     }
 
     fn binary_exists(&self) -> bool {
@@ -107,7 +139,14 @@ impl TsGoExtension {
         }
     }
 
-    fn install_package(&mut self, id: &LanguageServerId, custom_version: Option<&str>) -> Result<()> {
+    fn install_package(&mut self, id: &LanguageServerId, worktree: &zed::Worktree, settings: &TsGoSettings) -> Result<()> {
+        if let Ok(custom_path) = Self::get_binary_path_from_settings(settings, worktree) {
+            self.cached_binary_path = Some(custom_path.to_string_lossy().to_string());
+            return Ok(());
+        }
+
+        let custom_version = settings.package_version.as_deref();
+
         zed::set_language_server_installation_status(
             id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
@@ -142,7 +181,7 @@ impl TsGoExtension {
         Ok(())
     }
 
-    fn binary_path(&mut self, id: &LanguageServerId, package_version: Option<&str>) -> Result<String> {
+    fn binary_path(&mut self, id: &LanguageServerId, worktree: &zed::Worktree, settings: &TsGoSettings) -> Result<String> {
         // Return cached path if we have it and binary still exists
         if let Some(ref cached_path) = self.cached_binary_path {
             if fs::metadata(cached_path).map_or(false, |stat| stat.is_file()) {
@@ -151,9 +190,9 @@ impl TsGoExtension {
         }
 
         // Install or update package as needed
-        self.install_package(id, package_version)?;
+        self.install_package(id, worktree, settings)?;
 
-        let binary_path = Self::get_native_binary_path()
+        let binary_path = Self::get_binary_path(settings, worktree)
             .map_err(|e| format!("Failed to locate native binary: {}", e))?;
 
         Ok(binary_path.to_string_lossy().to_string())
@@ -174,7 +213,7 @@ impl zed::Extension for TsGoExtension {
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<zed_extension_api::Command> {
         let lsp_settings = LspSettings::for_worktree("tsgo", worktree).ok();
-        
+
         let env = lsp_settings
             .as_ref()
             .and_then(|s| s.binary.as_ref())
@@ -185,8 +224,7 @@ impl zed::Extension for TsGoExtension {
             .map(|s| TsGoSettings::from_lsp_settings(s))
             .unwrap_or_default();
 
-        let package_version = settings.package_version.as_deref();
-        let executable_path = self.binary_path(language_server_id, package_version)?;
+        let executable_path = self.binary_path(language_server_id, worktree, &settings)?;
 
         Ok(zed::Command {
             command: std::env::current_dir()
