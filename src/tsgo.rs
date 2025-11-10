@@ -10,7 +10,7 @@ struct TsGoExtension {
 
 const PACKAGE_NAME: &str = "@typescript/native-preview";
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct TsGoSettings {
     package_version: Option<String>,
 }
@@ -183,9 +183,7 @@ impl zed::Extension for TsGoExtension {
         let settings = lsp_settings
             .as_ref()
             .map(|s| TsGoSettings::from_lsp_settings(s))
-            .unwrap_or(TsGoSettings {
-                package_version: None,
-            });
+            .unwrap_or_default();
 
         let package_version = settings.package_version.as_deref();
         let executable_path = self.binary_path(language_server_id, package_version)?;
