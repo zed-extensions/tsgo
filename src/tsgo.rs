@@ -10,6 +10,26 @@ struct TsGoExtension {
 
 const PACKAGE_NAME: &str = "@typescript/native-preview";
 
+#[derive(Debug, Default)]
+struct TsGoSettings {
+    package_version: Option<String>,
+}
+
+impl TsGoSettings {
+    fn from_lsp_settings(settings: &LspSettings) -> Self {
+        let package_version = settings
+            .settings
+            .as_ref()
+            .and_then(|s| s.get("package_version"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        Self {
+            package_version,
+        }
+    }
+}
+
 impl TsGoExtension {
     fn get_platform_package_name() -> Result<String> {
         let (platform, arch) = zed::current_platform();
@@ -76,32 +96,35 @@ impl TsGoExtension {
             .flatten()
     }
 
-    fn should_install_or_update(&self, latest_version: &str) -> bool {
+    fn should_install_or_update(&self, target_version: &str) -> bool {
         if !self.binary_exists() {
             return true;
         }
 
         match self.get_installed_version() {
-            Some(installed_version) => installed_version != latest_version,
+            Some(installed_version) => installed_version != target_version,
             None => true,
         }
     }
 
-    fn install_package(&mut self, id: &LanguageServerId) -> Result<()> {
+    fn install_package(&mut self, id: &LanguageServerId, custom_version: Option<&str>) -> Result<()> {
         zed::set_language_server_installation_status(
             id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
         );
 
-        let latest_version = zed::npm_package_latest_version(PACKAGE_NAME)?;
+        let target_version = match custom_version {
+            Some(version) => version.to_string(),
+            None => zed::npm_package_latest_version(PACKAGE_NAME)?,
+        };
 
-        if self.should_install_or_update(&latest_version) {
+        if self.should_install_or_update(&target_version) {
             zed::set_language_server_installation_status(
                 id,
                 &zed::LanguageServerInstallationStatus::Downloading,
             );
 
-            let result = zed::npm_install_package(PACKAGE_NAME, &latest_version);
+            let result = zed::npm_install_package(PACKAGE_NAME, &target_version);
             if let Err(error) = result {
                 if !self.binary_exists() {
                     return Err(error);
@@ -114,12 +137,12 @@ impl TsGoExtension {
 
         // Cache the successful installation
         self.cached_binary_path = Some(binary_path.to_string_lossy().to_string());
-        self.cached_version = Some(latest_version);
+        self.cached_version = Some(target_version);
 
         Ok(())
     }
 
-    fn binary_path(&mut self, id: &LanguageServerId) -> Result<String> {
+    fn binary_path(&mut self, id: &LanguageServerId, package_version: Option<&str>) -> Result<String> {
         // Return cached path if we have it and binary still exists
         if let Some(ref cached_path) = self.cached_binary_path {
             if fs::metadata(cached_path).map_or(false, |stat| stat.is_file()) {
@@ -128,7 +151,7 @@ impl TsGoExtension {
         }
 
         // Install or update package as needed
-        self.install_package(id)?;
+        self.install_package(id, package_version)?;
 
         let binary_path = Self::get_native_binary_path()
             .map_err(|e| format!("Failed to locate native binary: {}", e))?;
@@ -150,12 +173,20 @@ impl zed::Extension for TsGoExtension {
         language_server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<zed_extension_api::Command> {
-        let env = LspSettings::for_worktree("tsgo", worktree)
-            .ok()
-            .and_then(|s| s.binary)
-            .and_then(|binary| binary.env);
+        let lsp_settings = LspSettings::for_worktree("tsgo", worktree).ok();
+        
+        let env = lsp_settings
+            .as_ref()
+            .and_then(|s| s.binary.as_ref())
+            .and_then(|binary| binary.env.clone());
 
-        let executable_path = self.binary_path(language_server_id)?;
+        let settings = lsp_settings
+            .as_ref()
+            .map(|s| TsGoSettings::from_lsp_settings(s))
+            .unwrap_or_default();
+
+        let package_version = settings.package_version.as_deref();
+        let executable_path = self.binary_path(language_server_id, package_version)?;
 
         Ok(zed::Command {
             command: std::env::current_dir()

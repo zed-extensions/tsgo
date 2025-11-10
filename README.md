@@ -28,6 +28,8 @@ Microsoft is transitioning the TypeScript compiler from its JavaScript implement
 
 _Note_: `tsgo` is currently in preview and may not support all features of the standard `tsc` compiler.
 
+### Basic Setup
+
 Enable `tsgo` in your Zed settings:
 
 ```json
@@ -52,6 +54,30 @@ To do that with `vtsls`, use:
   }
 }
 ```
+
+### Advanced Configuration
+
+#### Specifying a Package Version
+
+By default, the extension installs and uses the latest version of the `@typescript/native-preview` [npm package](https://www.npmjs.com/package/@typescript/native-preview?activeTab=versions). To pin a specific version:
+
+```json
+{
+  "lsp": {
+    "tsgo": {
+      "settings": {
+        "package_version": "7.0.0-dev.20251029.1"
+      }
+    }
+  }
+}
+```
+
+This is useful for:
+
+- Ensuring consistent behavior across the project
+- Testing specific versions
+- Avoiding automatic updates that might introduce issues
 
 ## 🧪 Status
 
