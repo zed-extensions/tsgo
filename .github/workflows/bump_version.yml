@@ -46,7 +46,7 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-    uses: zed-industries/zed/.github/workflows/extension_bump.yml@3e7f2e3f9a576c4704c2f71497f6ba3516d9339b
+    uses: zed-industries/zed/.github/workflows/extension_bump.yml@30d3467d4bbbb47296b6cd81c8f9ffc31ae94b4b
     secrets:
       app-id: ${{ secrets.ZED_ZIPPY_APP_ID }}
       app-secret: ${{ secrets.ZED_ZIPPY_APP_PRIVATE_KEY }}
