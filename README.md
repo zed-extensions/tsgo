@@ -32,26 +32,32 @@ _Note_: `tsgo` is currently in preview and may not support all features of the s
 
 Enable `tsgo` in your Zed settings:
 
-```json
+```jsonc
 {
   "languages": {
     "TypeScript": {
-      "language_servers": ["tsgo"]
-    }
-  }
+      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
+    },
+    "TSX": {
+      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
+    },
+  },
 }
 ```
 
 You can also use `tsgo` in tandem with other language servers (e.g. `typescript-language-server` or `vtsls`). Zed will use `tsgo` for features it supports and fallback to the next language server in the list for unsupported features.
 To do that with `vtsls`, use:
 
-```json
+```jsonc
 {
   "languages": {
     "TypeScript": {
-      "language_servers": ["tsgo", "vtsls"]
-    }
-  }
+      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
+    },
+    "TSX": {
+      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
+    },
+  },
 }
 ```
 
