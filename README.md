@@ -36,10 +36,10 @@ Enable `tsgo` in your Zed settings:
 {
   "languages": {
     "TypeScript": {
-      "language_servers": ["tsgo", "!vtsls", "..."],
+      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
     },
     "TSX": {
-      "language_servers": ["tsgo", "!vtsls", "..."],
+      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
     },
   },
 }
@@ -52,10 +52,10 @@ To do that with `vtsls`, use:
 {
   "languages": {
     "TypeScript": {
-      "language_servers": ["tsgo", "vtsls", "..."],
+      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
     },
     "TSX": {
-      "language_servers": ["tsgo", "vtsls", "..."],
+      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
     },
   },
 }
