@@ -128,9 +128,10 @@ impl TsGoExtension {
 
             let result = zed::npm_install_package(PACKAGE_NAME, &target_version);
             if let Err(error) = result
-                && !self.binary_exists() {
-                    return Err(error);
-                }
+                && !self.binary_exists()
+            {
+                return Err(error);
+            }
         }
 
         let binary_path = Self::get_native_binary_path()
@@ -150,9 +151,10 @@ impl TsGoExtension {
     ) -> Result<String> {
         // Return cached path if we have it and binary still exists
         if let Some(ref cached_path) = self.cached_binary_path
-            && fs::metadata(cached_path).is_ok_and(|stat| stat.is_file()) {
-                return Ok(cached_path.clone());
-            }
+            && fs::metadata(cached_path).is_ok_and(|stat| stat.is_file())
+        {
+            return Ok(cached_path.clone());
+        }
 
         // Install or update package as needed
         self.install_package(id, package_version)?;
