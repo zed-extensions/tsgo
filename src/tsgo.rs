@@ -24,9 +24,7 @@ impl TsGoSettings {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        Self {
-            package_version,
-        }
+        Self { package_version }
     }
 }
 
@@ -107,7 +105,11 @@ impl TsGoExtension {
         }
     }
 
-    fn install_package(&mut self, id: &LanguageServerId, custom_version: Option<&str>) -> Result<()> {
+    fn install_package(
+        &mut self,
+        id: &LanguageServerId,
+        custom_version: Option<&str>,
+    ) -> Result<()> {
         zed::set_language_server_installation_status(
             id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
@@ -142,7 +144,11 @@ impl TsGoExtension {
         Ok(())
     }
 
-    fn binary_path(&mut self, id: &LanguageServerId, package_version: Option<&str>) -> Result<String> {
+    fn binary_path(
+        &mut self,
+        id: &LanguageServerId,
+        package_version: Option<&str>,
+    ) -> Result<String> {
         // Return cached path if we have it and binary still exists
         if let Some(ref cached_path) = self.cached_binary_path {
             if fs::metadata(cached_path).map_or(false, |stat| stat.is_file()) {
@@ -174,7 +180,7 @@ impl zed::Extension for TsGoExtension {
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<zed_extension_api::Command> {
         let lsp_settings = LspSettings::for_worktree("tsgo", worktree).ok();
-        
+
         let env = lsp_settings
             .as_ref()
             .and_then(|s| s.binary.as_ref())
