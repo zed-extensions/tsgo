@@ -1,13 +1,14 @@
-use std::fs;
 use std::path::PathBuf;
+use std::{fs, path::Path};
 
-use zed_extension_api::{self as zed, LanguageServerId, Result, settings::LspSettings};
+use zed_extension_api::{self as zed, LanguageServerId, Result, serde_json, settings::LspSettings};
 
 struct TsGoExtension {
     cached_binary_path: Option<String>,
     cached_version: Option<String>,
 }
 
+const WORKTREE_SERVER_PATH: &str = "node_modules/@typescript/native-preview/bin/tsgo.js";
 const PACKAGE_NAME: &str = "@typescript/native-preview";
 
 #[derive(Debug, Default)]
@@ -82,6 +83,20 @@ impl TsGoExtension {
         }
 
         Ok(binary_path)
+    }
+
+    fn worktree_tsgo_exists(&self, worktree: &zed::Worktree) -> bool {
+        let package_json = worktree
+            .read_text_file("package.json")
+            .unwrap_or(String::from(r#"{}"#));
+
+        let package_json: Option<serde_json::Value> =
+            serde_json::from_str(package_json.as_str()).ok();
+
+        package_json.is_some_and(|f| {
+            !f["dependencies"][PACKAGE_NAME].is_null()
+                || !f["devDependencies"][PACKAGE_NAME].is_null()
+        })
     }
 
     fn binary_exists(&self) -> bool {
@@ -184,12 +199,33 @@ impl zed::Extension for TsGoExtension {
         let env = lsp_settings
             .as_ref()
             .and_then(|s| s.binary.as_ref())
-            .and_then(|binary| binary.env.clone());
+            .and_then(|binary| binary.env.clone())
+            .into_iter()
+            .flat_map(|env| env.into_iter())
+            .collect();
 
         let settings = lsp_settings
             .as_ref()
             .map(TsGoSettings::from_lsp_settings)
             .unwrap_or_default();
+
+        let mut args = vec!["--lsp".to_string(), "--stdio".to_string()];
+
+        if self.worktree_tsgo_exists(worktree) {
+            let server_path = Path::new(worktree.root_path().as_str())
+                .join(WORKTREE_SERVER_PATH)
+                .to_string_lossy()
+                .to_string();
+
+            let mut node_args = vec![server_path];
+            node_args.append(&mut args);
+
+            return Ok(zed::Command {
+                command: zed::node_binary_path()?,
+                args: node_args,
+                env,
+            });
+        }
 
         let package_version = settings.package_version.as_deref();
         let executable_path = self.binary_path(language_server_id, package_version)?;
@@ -200,8 +236,8 @@ impl zed::Extension for TsGoExtension {
                 .join(executable_path)
                 .to_string_lossy()
                 .into_owned(),
-            args: vec!["--lsp".into(), "--stdio".into()],
-            env: env.into_iter().flat_map(|env| env.into_iter()).collect(),
+            args,
+            env,
         })
     }
 
