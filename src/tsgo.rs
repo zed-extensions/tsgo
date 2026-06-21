@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use zed_extension_api::serde_json::{Value, json};
 use zed_extension_api::{self as zed, LanguageServerId, Result, settings::LspSettings};
 
 struct TsGoExtension {
@@ -25,6 +26,28 @@ impl TsGoSettings {
             .map(|s| s.to_string());
 
         Self { package_version }
+    }
+}
+
+fn merge_json_value_into(source: Value, target: &mut Value) {
+    match (source, target) {
+        (Value::Object(source), Value::Object(target)) => {
+            for (key, value) in source {
+                if let Some(target) = target.get_mut(&key) {
+                    merge_json_value_into(value, target);
+                } else {
+                    target.insert(key, value);
+                }
+            }
+        }
+
+        (Value::Array(source), Value::Array(target)) => {
+            for value in source {
+                target.push(value);
+            }
+        }
+
+        (source, target) => *target = source,
     }
 }
 
@@ -210,11 +233,19 @@ impl zed::Extension for TsGoExtension {
         server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
-        let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
-            .ok()
-            .and_then(|lsp_settings| lsp_settings.initialization_options.clone())
-            .unwrap_or_default();
-        Ok(Some(settings))
+        let mut initialization_options = json!({
+            "codeLensShowLocationsCommandName": "editor.action.showReferences"
+        });
+
+        if let Some(user_initialization_options) =
+            LspSettings::for_worktree(server_id.as_ref(), worktree)
+                .ok()
+                .and_then(|lsp_settings| lsp_settings.initialization_options.clone())
+        {
+            merge_json_value_into(user_initialization_options, &mut initialization_options);
+        }
+
+        Ok(Some(initialization_options))
     }
 
     fn language_server_workspace_configuration(
@@ -222,10 +253,52 @@ impl zed::Extension for TsGoExtension {
         server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
-        let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
+        let config = json!({
+            "inlayHints": {
+                "parameterNames": {
+                    "enabled": "all",
+                    "suppressWhenArgumentMatchesName": false
+                },
+                "parameterTypes": {
+                    "enabled": true
+                },
+                "variableTypes": {
+                    "enabled": true,
+                    "suppressWhenTypeMatchesName": false
+                },
+                "propertyDeclarationTypes": {
+                    "enabled": true
+                },
+                "functionLikeReturnTypes": {
+                    "enabled": true
+                },
+                "enumMemberValues": {
+                    "enabled": true
+                }
+            },
+            "implementationsCodeLens": {
+                "enabled": true,
+                "showOnAllClassMethods": true,
+                "showOnInterfaceMethods": true
+            },
+            "referencesCodeLens": {
+                "enabled": true,
+                "showOnAllFunctions": true
+            }
+        });
+
+        let mut settings = json!({
+            "typescript": config.clone(),
+            "javascript": config
+        });
+
+        if let Some(user_settings) = LspSettings::for_worktree(server_id.as_ref(), worktree)
             .ok()
             .and_then(|lsp_settings| lsp_settings.settings.clone())
-            .unwrap_or_default();
+        {
+            merge_json_value_into(user_settings, &mut settings);
+        }
+
         Ok(Some(settings))
     }
 }
