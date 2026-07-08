@@ -85,6 +85,88 @@ This is useful for:
 - Testing specific versions
 - Avoiding automatic updates that might introduce issues
 
+#### Inlay Hints
+
+The extension sets defaults to make `tsgo` send back inlay hints when Zed has inlay hints enabled. To show them, enable Zed's `inlay_hints` setting:
+
+```json
+{
+  "inlay_hints": {
+    "enabled": true
+  }
+}
+```
+
+You can override the default inlay hint settings in your Zed settings:
+
+```json
+{
+  "lsp": {
+    "tsgo": {
+      "settings": {
+        "typescript": {
+          "inlayHints": {
+            "parameterNames": {
+              "enabled": "none"
+            },
+            "parameterTypes": {
+              "enabled": false
+            },
+            "variableTypes": {
+              "enabled": false
+            },
+            "propertyDeclarationTypes": {
+              "enabled": false
+            },
+            "functionLikeReturnTypes": {
+              "enabled": false
+            },
+            "enumMemberValues": {
+              "enabled": false
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Use the same settings under `javascript` to override them for JavaScript.
+
+#### Code Lens
+
+The extension enables references and implementations code lenses by default. These show reference counts and implementation counts above functions, classes, and interfaces. To use them, enable Zed's `code_lens` setting:
+
+```json
+{
+  "code_lens": "on"
+}
+```
+
+You can override the default code lens settings in your Zed settings:
+
+```json
+{
+  "lsp": {
+    "tsgo": {
+      "settings": {
+        "typescript": {
+          "implementationsCodeLens": {
+            "enabled": false
+          },
+          "referencesCodeLens": {
+            "enabled": false
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Use the same settings under `javascript` to override them for JavaScript.
+
 ## 🧪 Status
 
 This extension is in early development stages. While it offers significant performance benefits, some features may be incomplete or unstable. Contributions and feedback are welcome to improve its functionality.
