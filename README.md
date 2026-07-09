@@ -2,8 +2,6 @@
 
 This extension integrates the native, Go-based TypeScript compiler and language server into the Zed editor, delivering enhanced performance and efficiency for TypeScript development.
 
-With the release of **TypeScript 7.0**, this native implementation has graduated from the `@typescript/native-preview` preview package into the standard [`typescript`](https://www.npmjs.com/package/typescript) package on npm. This extension installs and runs that native `tsc`/language server directly.
-
 ## 🚀 Why the native compiler?
 
 TypeScript 7.0 ports the compiler from its JavaScript implementation to a native version written in Go, delivering significant performance improvements:
@@ -87,7 +85,7 @@ This is useful for:
 - Testing specific versions
 - Avoiding automatic updates that might introduce issues
 
-Nightly builds are now published under the `next` dist-tag of the standard `typescript` package (replacing the old `@typescript/native-preview` nightlies). You can pin to one by using its exact dev version, e.g. `"package_version": "7.1.0-dev.<date>.<n>"` — check the [version list](https://www.npmjs.com/package/typescript?activeTab=versions) for the latest `next` release.
+You can also pin to a nightly build by using a version published under the `next` dist-tag, e.g. `"package_version": "7.1.0-dev.20260710.1"` (nightly builds are published to the stand
 
 ## 🧪 Status
 
