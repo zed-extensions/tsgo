@@ -1,10 +1,12 @@
 # tsgo: Native TypeScript Compiler Integration for Zed
 
-This extension integrates `tsgo`, Microsoft's native Go-based TypeScript compiler, into the Zed editor, delivering enhanced performance and efficiency for TypeScript development.
+This extension integrates the native, Go-based TypeScript compiler and language server into the Zed editor, delivering enhanced performance and efficiency for TypeScript development.
 
-## 🚀 Why `tsgo`?
+With the release of **TypeScript 7.0**, this native implementation has graduated from the `@typescript/native-preview` preview package into the standard [`typescript`](https://www.npmjs.com/package/typescript) package on npm. This extension installs and runs that native `tsc`/language server directly.
 
-Microsoft is transitioning the TypeScript compiler from its JavaScript implementation to a native version written in Go, aiming for significant performance improvements:
+## 🚀 Why the native compiler?
+
+TypeScript 7.0 ports the compiler from its JavaScript implementation to a native version written in Go, delivering significant performance improvements:
 
 - **Faster Compilation**: Achieves up to 10x speed improvements in large projects.
 - **Reduced Memory Usage**: Optimized memory handling in native execution.
@@ -26,7 +28,7 @@ Microsoft is transitioning the TypeScript compiler from its JavaScript implement
 
 ## ⚙️ Configuration
 
-_Note_: `tsgo` is currently in preview and may not support all features of the standard `tsc` compiler.
+_Note_: While TypeScript 7.0 is now stable, some tools (e.g. `typescript-eslint`) still require the TypeScript 6.0 API, since a new native compiler API isn't expected until TypeScript 7.1. This extension only integrates the compiler and language server, so it isn't affected by that limitation.
 
 ### Basic Setup
 
@@ -65,14 +67,14 @@ To do that with `vtsls`, use:
 
 #### Specifying a Package Version
 
-By default, the extension installs and uses the latest version of the `@typescript/native-preview` [npm package](https://www.npmjs.com/package/@typescript/native-preview?activeTab=versions). To pin a specific version:
+By default, the extension installs and uses the latest version of the [`typescript`](https://www.npmjs.com/package/typescript?activeTab=versions) npm package. To pin a specific version:
 
 ```json
 {
   "lsp": {
     "tsgo": {
       "settings": {
-        "package_version": "7.0.0-dev.20251029.1"
+        "package_version": "7.0.2"
       }
     }
   }
@@ -84,6 +86,8 @@ This is useful for:
 - Ensuring consistent behavior across the project
 - Testing specific versions
 - Avoiding automatic updates that might introduce issues
+
+Nightly builds are now published under the `next` dist-tag of the standard `typescript` package (replacing the old `@typescript/native-preview` nightlies). You can pin to one by using its exact dev version, e.g. `"package_version": "7.1.0-dev.<date>.<n>"` — check the [version list](https://www.npmjs.com/package/typescript?activeTab=versions) for the latest `next` release.
 
 ## 🧪 Status
 
