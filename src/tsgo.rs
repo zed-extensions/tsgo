@@ -8,7 +8,7 @@ struct TsGoExtension {
     cached_version: Option<String>,
 }
 
-const PACKAGE_NAME: &str = "@typescript/native-preview";
+const PACKAGE_NAME: &str = "typescript";
 
 #[derive(Debug, Default)]
 struct TsGoSettings {
@@ -49,7 +49,7 @@ impl TsGoExtension {
             zed::Architecture::X8664 => "x64",
         };
 
-        Ok(format!("@typescript/native-preview-{}-{}", os, arch))
+        Ok(format!("@typescript/typescript-{}-{}", os, arch))
     }
 
     fn get_native_binary_path() -> Result<PathBuf> {
@@ -60,7 +60,7 @@ impl TsGoExtension {
 
         if !package_path.exists() {
             return Err(format!(
-                "Platform package {} not found at {}. Make sure the correct platform-specific package is installed.",
+                "Platform package {} not found at {}. Make sure the correct platform-specific package is installed (a pinned package_version must be >= 7.0.0; older typescript versions have no native binary).",
                 platform_package,
                 package_path.display()
             ));
@@ -68,8 +68,8 @@ impl TsGoExtension {
 
         let (platform, _) = zed::current_platform();
         let binary_name = match platform {
-            zed::Os::Windows => "tsgo.exe",
-            _ => "tsgo",
+            zed::Os::Windows => "tsc.exe",
+            _ => "tsc",
         };
 
         let binary_path = package_path.join("lib").join(binary_name);
