@@ -144,6 +144,7 @@ impl TsGoExtension {
             Some(version) => version.to_string(),
             None => zed::npm_package_latest_version(PACKAGE_NAME)?,
         };
+
         if self.should_install_or_update(&target_version) {
             zed::set_language_server_installation_status(
                 id,

@@ -184,7 +184,3 @@ You can override the default code lens settings in your Zed settings:
 ```
 
 Use the same settings under `javascript` to override them for JavaScript.
-
-## 🧪 Status
-
-This extension is in early development stages. While it offers significant performance benefits, some features may be incomplete or unstable. Contributions and feedback are welcome to improve its functionality.
