@@ -1,10 +1,10 @@
 # tsgo: Native TypeScript Compiler Integration for Zed
 
-This extension integrates `tsgo`, Microsoft's native Go-based TypeScript compiler, into the Zed editor, delivering enhanced performance and efficiency for TypeScript development.
+This extension integrates TypeScript v7's native Go-based compiler and language server into the Zed editor, delivering enhanced performance and efficiency for TypeScript development.
 
-## 🚀 Why `tsgo`?
+## 🚀 Why the native compiler?
 
-Microsoft is transitioning the TypeScript compiler from its JavaScript implementation to a native version written in Go, aiming for significant performance improvements:
+With TypeScript 7, Microsoft shipped the TypeScript compiler as a native version written in Go, with significant performance improvements:
 
 - **Faster Compilation**: Achieves up to 10x speed improvements in large projects.
 - **Reduced Memory Usage**: Optimized memory handling in native execution.
@@ -22,42 +22,60 @@ Microsoft is transitioning the TypeScript compiler from its JavaScript implement
 ## 🛠 Installation
 
 1. Open Zed's Extensions page.
-2. Search for `tsgo` and install the extension.
+2. Search for `TypeScript Language Server` and install the extension.
 
 ## ⚙️ Configuration
 
-_Note_: `tsgo` is currently in preview and may not support all features of the standard `tsc` compiler.
-
 ### Basic Setup
 
-Enable `tsgo` in your Zed settings:
+Enable `typescript-ls` in your Zed settings:
 
 ```jsonc
 {
-  "languages": {
-    "TypeScript": {
-      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
+    "languages": {
+        "TypeScript": {
+            "language_servers": [
+                "typescript-ls",
+                "!vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
+        "TSX": {
+            "language_servers": [
+                "typescript-ls",
+                "!vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
     },
-    "TSX": {
-      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
-    },
-  },
 }
 ```
 
-You can also use `tsgo` in tandem with other language servers (e.g. `typescript-language-server` or `vtsls`). Zed will use `tsgo` for features it supports and fallback to the next language server in the list for unsupported features.
+You can also use `typescript-ls` in tandem with other language servers (e.g. `typescript-language-server` or `vtsls`). Zed will use `typescript-ls` for features it supports and fallback to the next language server in the list for unsupported features.
 To do that with `vtsls`, use:
 
 ```jsonc
 {
-  "languages": {
-    "TypeScript": {
-      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
+    "languages": {
+        "TypeScript": {
+            "language_servers": [
+                "typescript-ls",
+                "vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
+        "TSX": {
+            "language_servers": [
+                "typescript-ls",
+                "vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
     },
-    "TSX": {
-      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
-    },
-  },
 }
 ```
 
@@ -65,17 +83,17 @@ To do that with `vtsls`, use:
 
 #### Specifying a Package Version
 
-By default, the extension installs and uses the latest version of the `@typescript/native-preview` [npm package](https://www.npmjs.com/package/@typescript/native-preview?activeTab=versions). To pin a specific version:
+By default, the extension installs and uses the latest version of the `typescript` [npm package](https://www.npmjs.com/package/typescript?activeTab=versions). To pin a specific version (must be >= 7.0.0, older versions have no native language server):
 
 ```json
 {
-  "lsp": {
-    "tsgo": {
-      "settings": {
-        "package_version": "7.0.0-dev.20251029.1"
-      }
+    "lsp": {
+        "typescript-ls": {
+            "settings": {
+                "package_version": "7.0.2"
+            }
+        }
     }
-  }
 }
 ```
 
@@ -87,7 +105,7 @@ This is useful for:
 
 #### Inlay Hints
 
-The extension sets defaults to make `tsgo` send back inlay hints when Zed has inlay hints enabled. To show them, enable Zed's `inlay_hints` setting:
+The extension sets defaults to make `typescript-ls` send back inlay hints when Zed has inlay hints enabled. To show them, enable Zed's `inlay_hints` setting:
 
 ```json
 {
@@ -102,7 +120,7 @@ You can override the default inlay hint settings in your Zed settings:
 ```json
 {
   "lsp": {
-    "tsgo": {
+    "typescript-ls": {
       "settings": {
         "typescript": {
           "inlayHints": {
@@ -149,7 +167,7 @@ You can override the default code lens settings in your Zed settings:
 ```json
 {
   "lsp": {
-    "tsgo": {
+    "typescript-ls": {
       "settings": {
         "typescript": {
           "implementationsCodeLens": {
