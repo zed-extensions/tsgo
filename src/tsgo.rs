@@ -175,7 +175,7 @@ impl TsGoExtension {
         package_version: Option<&str>,
     ) -> Result<String> {
         // Return cached path if we have it and binary still exists
-        if let Some(ref cached_path) = self.cached_binary_path
+        if let Some(cached_path) = self.cached_binary_path.as_ref()
             && fs::metadata(cached_path).is_ok_and(|stat| stat.is_file())
         {
             return Ok(cached_path.clone());
