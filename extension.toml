@@ -1,5 +1,5 @@
 id = "tsgo"
-name = "tsgo"
+name = "TypeScript Language Server"
 description = "TypeScript v7's native compiler and language server."
 version = "0.0.5"
 schema_version = 1
@@ -7,8 +7,8 @@ authors = ["Zed Industries <hello@zed.dev>"]
 repository = "https://github.com/zed-extensions/tsgo"
 
 
-[language_servers.tsgo]
-name = "tsgo"
+[language_servers.typescript-ls]
+name = "TypeScript LS"
 # The native TypeScript server determines ScriptKind from LSP languageId (textDocument/didOpen).
 # ScriptKind enum definition: https://github.com/microsoft/typescript-go/blob/main/internal/parser/parser.go (search for "type ScriptKind")
 # Panic location (initializeState): https://github.com/microsoft/typescript-go/blob/main/internal/parser/parser.go#L210

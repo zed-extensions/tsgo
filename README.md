@@ -22,40 +22,60 @@ With TypeScript 7, Microsoft shipped the TypeScript compiler as a native version
 ## 🛠 Installation
 
 1. Open Zed's Extensions page.
-2. Search for `tsgo` and install the extension.
+2. Search for `TypeScript Language Server` and install the extension.
 
 ## ⚙️ Configuration
 
 ### Basic Setup
 
-Enable `tsgo` in your Zed settings:
+Enable `typescript-ls` in your Zed settings:
 
 ```jsonc
 {
-  "languages": {
-    "TypeScript": {
-      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
+    "languages": {
+        "TypeScript": {
+            "language_servers": [
+                "typescript-ls",
+                "!vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
+        "TSX": {
+            "language_servers": [
+                "typescript-ls",
+                "!vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
     },
-    "TSX": {
-      "language_servers": ["tsgo", "!vtsls", "!typescript-language-server", "..."],
-    },
-  },
 }
 ```
 
-You can also use `tsgo` in tandem with other language servers (e.g. `typescript-language-server` or `vtsls`). Zed will use `tsgo` for features it supports and fallback to the next language server in the list for unsupported features.
+You can also use `typescript-ls` in tandem with other language servers (e.g. `typescript-language-server` or `vtsls`). Zed will use `typescript-ls` for features it supports and fallback to the next language server in the list for unsupported features.
 To do that with `vtsls`, use:
 
 ```jsonc
 {
-  "languages": {
-    "TypeScript": {
-      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
+    "languages": {
+        "TypeScript": {
+            "language_servers": [
+                "typescript-ls",
+                "vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
+        "TSX": {
+            "language_servers": [
+                "typescript-ls",
+                "vtsls",
+                "!typescript-language-server",
+                "...",
+            ],
+        },
     },
-    "TSX": {
-      "language_servers": ["tsgo", "vtsls", "!typescript-language-server", "..."],
-    },
-  },
 }
 ```
 
@@ -67,13 +87,13 @@ By default, the extension installs and uses the latest version of the `typescrip
 
 ```json
 {
-  "lsp": {
-    "tsgo": {
-      "settings": {
-        "package_version": "7.0.2"
-      }
+    "lsp": {
+        "typescript-ls": {
+            "settings": {
+                "package_version": "7.0.2"
+            }
+        }
     }
-  }
 }
 ```
 
