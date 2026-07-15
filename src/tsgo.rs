@@ -1,14 +1,18 @@
+use std::cell::OnceCell;
 use std::fs;
 use std::path::PathBuf;
 
-use zed_extension_api::{self as zed, LanguageServerId, Result, settings::LspSettings};
+use zed_extension_api::serde_json::Value;
+use zed_extension_api::{self as zed, LanguageServerId, Result, Worktree, settings::LspSettings};
 
 struct TsGoExtension {
     cached_binary_path: Option<String>,
     cached_version: Option<String>,
 }
 
-const PACKAGE_NAME: &str = "@typescript/native-preview";
+const PACKAGE_NAME: &str = "typescript";
+/// LSP ID previously used before TypeScript 7 was released
+const FALLBACK_KEY: &str = "tsgo";
 
 #[derive(Debug, Default)]
 struct TsGoSettings {
@@ -16,11 +20,9 @@ struct TsGoSettings {
 }
 
 impl TsGoSettings {
-    fn from_lsp_settings(settings: &LspSettings) -> Self {
+    fn from_lsp_settings(settings: &Value) -> Self {
         let package_version = settings
-            .settings
-            .as_ref()
-            .and_then(|s| s.get("package_version"))
+            .get("package_version")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
@@ -49,7 +51,7 @@ impl TsGoExtension {
             zed::Architecture::X8664 => "x64",
         };
 
-        Ok(format!("@typescript/native-preview-{}-{}", os, arch))
+        Ok(format!("@typescript/typescript-{}-{}", os, arch))
     }
 
     fn get_native_binary_path() -> Result<PathBuf> {
@@ -60,16 +62,17 @@ impl TsGoExtension {
 
         if !package_path.exists() {
             return Err(format!(
-                "Platform package {} not found at {}. Make sure the correct platform-specific package is installed.",
-                platform_package,
-                package_path.display()
+                "Platform package {platform_package} not found at {package_path}. \
+                Make sure the correct platform-specific package is installed \
+                (a pinned package_version must be >= 7.0.0; older typescript versions have no native binary).",
+                package_path = package_path.display()
             ));
         }
 
         let (platform, _) = zed::current_platform();
         let binary_name = match platform {
-            zed::Os::Windows => "tsgo.exe",
-            _ => "tsgo",
+            zed::Os::Windows => "tsc.exe",
+            _ => "tsc",
         };
 
         let binary_path = package_path.join("lib").join(binary_name);
@@ -150,7 +153,7 @@ impl TsGoExtension {
         package_version: Option<&str>,
     ) -> Result<String> {
         // Return cached path if we have it and binary still exists
-        if let Some(ref cached_path) = self.cached_binary_path
+        if let Some(cached_path) = self.cached_binary_path.as_ref()
             && fs::metadata(cached_path).is_ok_and(|stat| stat.is_file())
         {
             return Ok(cached_path.clone());
@@ -179,17 +182,21 @@ impl zed::Extension for TsGoExtension {
         language_server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<zed_extension_api::Command> {
-        let lsp_settings = LspSettings::for_worktree("tsgo", worktree).ok();
-
-        let env = lsp_settings
-            .as_ref()
-            .and_then(|s| s.binary.as_ref())
-            .and_then(|binary| binary.env.clone());
+        let lsp_settings =
+            LspSettingsWithFallback::for_worktree(language_server_id, FALLBACK_KEY, worktree).ok();
 
         let settings = lsp_settings
             .as_ref()
-            .map(TsGoSettings::from_lsp_settings)
+            .and_then(|settings| {
+                settings
+                    .get_setting(|s| s.settings.as_ref())
+                    .map(TsGoSettings::from_lsp_settings)
+            })
             .unwrap_or_default();
+
+        let env = lsp_settings
+            .and_then(|lsp_settings| lsp_settings.into_setting(|s| s.binary))
+            .and_then(|binary| binary.env);
 
         let package_version = settings.package_version.as_deref();
         let executable_path = self.binary_path(language_server_id, package_version)?;
@@ -210,9 +217,8 @@ impl zed::Extension for TsGoExtension {
         server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
-        let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
-            .ok()
-            .and_then(|lsp_settings| lsp_settings.initialization_options.clone())
+        let settings = LspSettingsWithFallback::for_worktree(server_id, FALLBACK_KEY, worktree)?
+            .into_setting(|lsp_settings| lsp_settings.initialization_options)
             .unwrap_or_default();
         Ok(Some(settings))
     }
@@ -222,11 +228,56 @@ impl zed::Extension for TsGoExtension {
         server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<Option<zed_extension_api::serde_json::Value>> {
-        let settings = LspSettings::for_worktree(server_id.as_ref(), worktree)
-            .ok()
-            .and_then(|lsp_settings| lsp_settings.settings.clone())
+        let settings = LspSettingsWithFallback::for_worktree(server_id, FALLBACK_KEY, worktree)?
+            .into_setting(|lsp_settings| lsp_settings.settings)
             .unwrap_or_default();
         Ok(Some(settings))
+    }
+}
+
+struct LspSettingsWithFallback<'a> {
+    settings: LspSettings,
+    fallback_id: &'static str,
+    fallback_settings: OnceCell<Option<LspSettings>>,
+    worktree: &'a Worktree,
+}
+
+impl<'a> LspSettingsWithFallback<'a> {
+    fn for_worktree(
+        server_id: &LanguageServerId,
+        fallback_id: &'static str,
+        worktree: &'a Worktree,
+    ) -> zed_extension_api::Result<Self> {
+        LspSettings::for_worktree(server_id.as_ref(), worktree).map(|settings| Self {
+            settings,
+            fallback_id,
+            fallback_settings: OnceCell::new(),
+            worktree,
+        })
+    }
+
+    fn get_setting<F, R>(&self, f: F) -> Option<&R>
+    where
+        F: Fn(&LspSettings) -> Option<&R>,
+    {
+        f(&self.settings).or_else(|| {
+            self.fallback_settings
+                .get_or_init(|| LspSettings::for_worktree(self.fallback_id, self.worktree).ok())
+                .as_ref()
+                .and_then(f)
+        })
+    }
+
+    fn into_setting<F, R>(self, f: F) -> Option<R>
+    where
+        F: Fn(LspSettings) -> Option<R>,
+    {
+        f(self.settings).or_else(|| {
+            let _ = self
+                .fallback_settings
+                .get_or_init(|| LspSettings::for_worktree(self.fallback_id, self.worktree).ok());
+            self.fallback_settings.into_inner().flatten().and_then(f)
+        })
     }
 }
 
