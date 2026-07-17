@@ -17,3 +17,7 @@ name = "TypeScript LS"
 #   javascript -> ScriptKindJS, javascriptreact -> ScriptKindJSX
 language_ids = { TypeScript = "typescript", TSX = "typescriptreact", JavaScript = "javascript", JSX = "javascriptreact" }
 languages = ["TypeScript", "TSX", "JavaScript", "JSX"]
+
+[[capabilities]]
+kind = "npm:install"
+package = "typescript"
