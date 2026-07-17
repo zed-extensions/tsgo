@@ -1,104 +1,94 @@
-# tsgo: Native TypeScript Compiler Integration for Zed
+# tsgo: TypeScript 7 language server for Zed
 
-This extension integrates TypeScript v7's native Go-based compiler and language server into the Zed editor, delivering enhanced performance and efficiency for TypeScript development.
+This extension runs TypeScript 7's native, Go-based language server in Zed for JavaScript, JSX,
+TypeScript, and TSX.
 
-## 🚀 Why the native compiler?
+## Installation
 
-With TypeScript 7, Microsoft shipped the TypeScript compiler as a native version written in Go, with significant performance improvements:
+Open Zed's Extensions page, search for `TypeScript Language Server`, and install the extension.
 
-- **Faster Compilation**: Achieves up to 10x speed improvements in large projects.
-- **Reduced Memory Usage**: Optimized memory handling in native execution.
-- **Improved Editor Performance**: Faster IntelliSense and language services.
-- **Scalability**: Better handling of large codebases.
-
-> _Example Benchmarks_:
->
-> - **VS Code**: 77.8s → 7.5s (10.4x speedup)
-> - **Playwright**: 11.1s → 1.1s (10.1x speedup)
-> - **TypeORM**: 17.5s → 1.3s (13.5x speedup)
->
-> _Source: [Microsoft Developer Blog](https://devblogs.microsoft.com/typescript/typescript-native-port/)_
-
-## 🛠 Installation
-
-1. Open Zed's Extensions page.
-2. Search for `TypeScript Language Server` and install the extension.
-
-## ⚙️ Configuration
-
-### Basic Setup
-
-Enable `typescript-ls` in your Zed settings:
+The server id is `typescript-ls`. To make it the primary TypeScript server:
 
 ```jsonc
 {
-    "languages": {
-        "TypeScript": {
-            "language_servers": [
-                "typescript-ls",
-                "!vtsls",
-                "!typescript-language-server",
-                "...",
-            ],
-        },
-        "TSX": {
-            "language_servers": [
-                "typescript-ls",
-                "!vtsls",
-                "!typescript-language-server",
-                "...",
-            ],
-        },
+  "languages": {
+    "JavaScript": {
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
     },
+    "JSX": {
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
+    },
+    "TypeScript": {
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
+    },
+    "TSX": {
+      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
+    }
+  }
 }
 ```
 
-You can also use `typescript-ls` in tandem with other language servers (e.g. `typescript-language-server` or `vtsls`). Zed will use `typescript-ls` for features it supports and fallback to the next language server in the list for unsupported features.
-To do that with `vtsls`, use:
+You can also keep another server later in the list for features the native server does not yet
+support:
 
 ```jsonc
 {
-    "languages": {
-        "TypeScript": {
-            "language_servers": [
-                "typescript-ls",
-                "vtsls",
-                "!typescript-language-server",
-                "...",
-            ],
-        },
-        "TSX": {
-            "language_servers": [
-                "typescript-ls",
-                "vtsls",
-                "!typescript-language-server",
-                "...",
-            ],
-        },
+  "languages": {
+    "TypeScript": {
+      "language_servers": ["typescript-ls", "vtsls", "!typescript-language-server", "..."]
     },
+    "TSX": {
+      "language_servers": ["typescript-ls", "vtsls", "!typescript-language-server", "..."]
+    }
+  }
 }
 ```
 
-### Advanced Configuration
+## How the server runs
 
-#### Specifying a Package Version
+TypeScript 7's language server is a native executable in the platform-specific
+`@typescript/typescript-<platform>-<arch>` npm packages, launched in LSP mode:
 
-By default, the extension installs and uses the latest version of the `typescript` [npm package](https://www.npmjs.com/package/typescript?activeTab=versions). To pin a specific version (must be >= 7.0.0, older versions have no native language server):
+```sh
+tsc --lsp --stdio
+```
+
+The extension executes that native binary directly when it can locate it next to the resolved
+`typescript` package. Otherwise it launches the package's `bin/tsc` Node shim, which uses
+Microsoft's own package resolution and covers pnpm and unusual install layouts. The fallback uses
+the worktree's `node` (including Volta/fnm shims) when available, or Zed's bundled Node.
+
+## TypeScript package resolution
+
+The extension resolves the TypeScript 7+ package in this order:
+
+1. A TypeScript dependency in the worktree root's `package.json`. The extension checks
+   `dependencies`, `devDependencies`, and `peerDependencies`, including `npm:` aliases under any
+   dependency name. Declarations that clearly select TypeScript 6 are skipped; when installed
+   package metadata is visible through Zed's worktree API, its version is checked as well.
+2. A managed `typescript` install in the extension's working directory.
+
+This supports Microsoft's TypeScript 6/7 side-by-side setup, for example:
 
 ```json
 {
-    "lsp": {
-        "typescript-ls": {
-            "settings": {
-                "package_version": "7.0.2"
-            }
-        }
-    }
+  "devDependencies": {
+    "@typescript/native": "npm:typescript@^7",
+    "typescript": "npm:@typescript/typescript6@^6"
+  }
 }
 ```
 
-This is useful for:
+The TypeScript 7 alias is selected and the TypeScript 6 compatibility package is ignored.
 
-- Ensuring consistent behavior across the project
-- Testing specific versions
-- Avoiding automatic updates that might introduce issues
+TypeScript 6 and older cannot run the native LSP and are rejected. Use Zed's built-in TypeScript
+support for those versions.
+
+## Development
+
+Install Rust with `rustup`, then run `zed: install dev extension` and select this directory.
+
+After source changes, rebuild the extension from the Extensions page. Run Zed with
+`zed --foreground` or use `zed: open log` to inspect extension and language-server errors.
+
+<!-- markdownlint-disable-file MD013 -->

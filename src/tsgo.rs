@@ -1,3 +1,5 @@
+mod typescript_package;
+
 use std::cell::OnceCell;
 use std::fs;
 use std::path::PathBuf;
@@ -167,6 +169,67 @@ impl TsGoExtension {
 
         Ok(binary_path.to_string_lossy().to_string())
     }
+
+    fn build_language_server_command(
+        &mut self,
+        language_server_id: &LanguageServerId,
+        worktree: &Worktree,
+    ) -> Result<zed::Command> {
+        let lsp_settings =
+            LspSettingsWithFallback::for_worktree(language_server_id, FALLBACK_KEY, worktree).ok();
+
+        let settings = lsp_settings
+            .as_ref()
+            .and_then(|settings| {
+                settings
+                    .get_setting(|settings| settings.settings.as_ref())
+                    .map(TsGoSettings::from_lsp_settings)
+            })
+            .unwrap_or_default();
+
+        let binary_env = lsp_settings
+            .and_then(|settings| settings.into_setting(|settings| settings.binary))
+            .and_then(|binary| binary.env);
+        let env = server_environment(worktree, binary_env);
+        let arguments = vec!["--lsp".into(), "--stdio".into()];
+
+        if let Some(package_directory) =
+            typescript_package::find_local_typescript_package_dir(worktree)
+        {
+            if let Some(native) =
+                typescript_package::find_native_server_binary(worktree, &package_directory)
+            {
+                return Ok(zed::Command {
+                    command: native,
+                    args: arguments,
+                    env,
+                });
+            }
+
+            let node = worktree
+                .which("node")
+                .map(Ok)
+                .unwrap_or_else(zed::node_binary_path)?;
+            let shim = typescript_package::node_shim_path(worktree, &package_directory)?;
+            return Ok(zed::Command {
+                command: node,
+                args: std::iter::once(shim).chain(arguments).collect(),
+                env,
+            });
+        }
+
+        let executable_path =
+            self.binary_path(language_server_id, settings.package_version.as_deref())?;
+        Ok(zed::Command {
+            command: std::env::current_dir()
+                .map_err(|error| error.to_string())?
+                .join(executable_path)
+                .to_string_lossy()
+                .into_owned(),
+            args: arguments,
+            env,
+        })
+    }
 }
 
 impl zed::Extension for TsGoExtension {
@@ -182,34 +245,22 @@ impl zed::Extension for TsGoExtension {
         language_server_id: &zed_extension_api::LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> zed_extension_api::Result<zed_extension_api::Command> {
-        let lsp_settings =
-            LspSettingsWithFallback::for_worktree(language_server_id, FALLBACK_KEY, worktree).ok();
-
-        let settings = lsp_settings
-            .as_ref()
-            .and_then(|settings| {
-                settings
-                    .get_setting(|s| s.settings.as_ref())
-                    .map(TsGoSettings::from_lsp_settings)
-            })
-            .unwrap_or_default();
-
-        let env = lsp_settings
-            .and_then(|lsp_settings| lsp_settings.into_setting(|s| s.binary))
-            .and_then(|binary| binary.env);
-
-        let package_version = settings.package_version.as_deref();
-        let executable_path = self.binary_path(language_server_id, package_version)?;
-
-        Ok(zed::Command {
-            command: std::env::current_dir()
-                .map_err(|e| e.to_string())?
-                .join(executable_path)
-                .to_string_lossy()
-                .into_owned(),
-            args: vec!["--lsp".into(), "--stdio".into()],
-            env: env.into_iter().flat_map(|env| env.into_iter()).collect(),
-        })
+        match self.build_language_server_command(language_server_id, worktree) {
+            Ok(command) => {
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &zed::LanguageServerInstallationStatus::None,
+                );
+                Ok(command)
+            }
+            Err(error) => {
+                zed::set_language_server_installation_status(
+                    language_server_id,
+                    &zed::LanguageServerInstallationStatus::Failed(error.clone()),
+                );
+                Err(error)
+            }
+        }
     }
 
     fn language_server_initialization_options(
@@ -233,6 +284,20 @@ impl zed::Extension for TsGoExtension {
             .unwrap_or_default();
         Ok(Some(settings))
     }
+}
+
+fn server_environment(
+    worktree: &Worktree,
+    binary_env: Option<std::collections::HashMap<String, String>>,
+) -> Vec<(String, String)> {
+    let mut env = worktree.shell_env();
+    if let Some(binary_env) = binary_env {
+        for (key, value) in binary_env {
+            env.retain(|(existing_key, _)| *existing_key != key);
+            env.push((key, value));
+        }
+    }
+    env
 }
 
 struct LspSettingsWithFallback<'a> {
