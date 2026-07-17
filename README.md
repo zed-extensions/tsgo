@@ -187,6 +187,86 @@ Explicit `arguments` replace all extension-generated arguments. When `arguments`
 `tsc`, `tsc.js`, or `tsc.exe` path receives the normal server flags. Any other configured path is
 treated as Node and receives the resolved TypeScript `bin/tsc` launcher plus those flags.
 
+## Language server configuration
+
+The server reads the configuration sections `js/ts`, `typescript`, `javascript`, and `editor`.
+Place those sections directly in `lsp.typescript-ls.settings`; they are forwarded to the server:
+
+```jsonc
+{
+  "lsp": {
+    "typescript-ls": {
+      "settings": {
+        "typescript": {
+          "preferences": {
+            "quoteStyle": "single",
+            "importModuleSpecifier": "non-relative",
+            "preferTypeOnlyAutoImports": true
+          }
+        },
+        "js/ts": {
+          "implicitProjectConfig": {
+            "checkJs": true
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Matching Zed's built-in TypeScript support, the extension enables every inlay hint kind and the
+references and implementations code lenses server-side by default. Zed's own `inlay_hints` and
+`code_lens` settings still control whether they are displayed. User configuration deep-merges over
+these defaults and wins at leaf level.
+
+VS Code-style dotted keys are expanded, so settings copied from TypeScript documentation work
+without restructuring:
+
+```jsonc
+{
+  "lsp": {
+    "typescript-ls": {
+      "settings": {
+        "typescript.inlayHints.parameterNames.enabled": "literals",
+        "typescript.preferences.quoteStyle": "single",
+        "js/ts.implicitProjectConfig.strictNullChecks": true
+      }
+    }
+  }
+}
+```
+
+When nested and dotted settings conflict, the nested value wins.
+
+Option groups currently read by the server include `inlayHints.*`, `preferences.*`, `suggest.*`,
+`format.*`, `referencesCodeLens.*`, `implementationsCodeLens.*`, `validate.*`,
+`workspaceSymbols.*`, `autoClosingTags`, and `implicitProjectConfig.*` under `js/ts`. See the
+server's authoritative
+[`UserPreferences`](https://github.com/microsoft/typescript-go/blob/main/internal/ls/lsutil/userpreferences.go)
+definition for the current surface.
+
+## Initialization options
+
+`initialization_options` are forwarded verbatim at server initialization:
+
+```jsonc
+{
+  "lsp": {
+    "typescript-ls": {
+      "initialization_options": {
+        "enableTelemetry": false,
+        "logVerbosity": 2
+      }
+    }
+  }
+}
+```
+
+Known upstream options include `disablePushDiagnostics`, `codeLensShowLocationsCommandName`,
+`userPreferences`, `enableTelemetry`, and `logVerbosity`. Configuration sections can update live;
+initialization options only apply at server startup.
+
 ## Legacy settings
 
 The extension previously used the server id `tsgo`. For compatibility, `binary`, `settings`, and
@@ -194,6 +274,13 @@ The extension previously used the server id `tsgo`. For compatibility, `binary`,
 `lsp.typescript-ls`.
 
 New configuration should use `lsp.typescript-ls`.
+
+## Known limits
+
+- TypeScript 7 does not yet expose the stable programmatic API needed by embedded-language
+  workflows such as Vue, MDX, Astro, Svelte, and Angular templates.
+- `codeLensShowLocationsCommandName` requires client-side command support that Zed extensions
+  cannot register. Code lenses resolve, but showing their locations remains editor-dependent.
 
 ## Development
 

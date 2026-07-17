@@ -4,6 +4,17 @@ use zed_extension_api::{self as zed, LanguageServerId, Result, Worktree, setting
 
 pub const FALLBACK_LANGUAGE_SERVER_ID: &str = "tsgo";
 
+/// Settings owned by this extension rather than the language server. Anything
+/// whose top-level key (or dotted-key prefix) matches one of these is consumed
+/// here and stripped before the rest is forwarded to `workspace/configuration`.
+const EXTENSION_KEY_PREFIXES: [&str; 5] = [
+    "package_version",
+    "version",
+    "updateChannel",
+    "tsdk",
+    "server",
+];
+
 #[derive(Clone, Copy)]
 pub enum ExtensionSetting {
     PackageVersion,
@@ -73,8 +84,9 @@ impl<'a> LspSettingsWithFallback<'a> {
     }
 }
 
-/// Looks a setting up by its dotted path, accepting both nested and literal
-/// dotted-key forms. The nested form wins when both are set.
+/// Looks a setting up by its dotted path, accepting both the nested form
+/// (`{"server": {"pprofDir": ...}}`) and the literal dotted key
+/// (`{"server.pprofDir": ...}`). The nested form wins when both are set.
 fn setting_value(
     settings: &Option<zed::serde_json::Value>,
     setting: ExtensionSetting,
@@ -160,6 +172,113 @@ pub fn string_map_setting(
         .map(Some)
 }
 
+/// Server-side preference defaults matching Zed's built-in TypeScript adapter,
+/// so inlay hints and code lenses work once enabled in Zed. User settings
+/// deep-merge over these with the user winning at leaf level.
+fn default_workspace_configuration() -> zed::serde_json::Value {
+    let language_defaults = zed::serde_json::json!({
+        "inlayHints": {
+            "parameterNames": { "enabled": "all", "suppressWhenArgumentMatchesName": false },
+            "parameterTypes": { "enabled": true },
+            "variableTypes": { "enabled": true, "suppressWhenTypeMatchesName": false },
+            "propertyDeclarationTypes": { "enabled": true },
+            "functionLikeReturnTypes": { "enabled": true },
+            "enumMemberValues": { "enabled": true },
+        },
+        "implementationsCodeLens": { "enabled": true, "showOnAllClassMethods": true, "showOnInterfaceMethods": true },
+        "referencesCodeLens": { "enabled": true, "showOnAllFunctions": true },
+    });
+
+    zed::serde_json::json!({
+        "typescript": language_defaults,
+        "javascript": language_defaults,
+    })
+}
+
+/// Builds the JSON served to the language server's `workspace/configuration`
+/// requests: extension-owned settings are stripped, remaining VS Code-style
+/// dotted keys are expanded, and the result is deep-merged over the defaults.
+pub fn workspace_configuration(
+    settings: Option<zed::serde_json::Value>,
+) -> Option<zed::serde_json::Value> {
+    let mut configuration = default_workspace_configuration();
+
+    let Some(settings) = settings else {
+        return Some(configuration);
+    };
+
+    let zed::serde_json::Value::Object(object) = settings else {
+        return Some(settings);
+    };
+
+    let mut forwarded = zed::serde_json::Map::new();
+    let mut dotted = Vec::new();
+    for (key, value) in object {
+        if is_extension_key(&key) {
+            continue;
+        }
+        if key.contains('.') {
+            dotted.push((key, value));
+        } else {
+            forwarded.insert(key, value);
+        }
+    }
+    for (key, value) in dotted {
+        merge_dotted_key(&mut forwarded, &key, value);
+    }
+
+    merge_user_value_into(
+        zed::serde_json::Value::Object(forwarded),
+        &mut configuration,
+    );
+    Some(configuration)
+}
+
+fn merge_user_value_into(user: zed::serde_json::Value, target: &mut zed::serde_json::Value) {
+    match (user, target) {
+        (zed::serde_json::Value::Object(user), zed::serde_json::Value::Object(target)) => {
+            for (key, value) in user {
+                match target.get_mut(&key) {
+                    Some(existing) => merge_user_value_into(value, existing),
+                    None => {
+                        target.insert(key, value);
+                    }
+                }
+            }
+        }
+        (user, target) => *target = user,
+    }
+}
+
+fn is_extension_key(key: &str) -> bool {
+    let first = key.split('.').next().unwrap_or(key);
+    EXTENSION_KEY_PREFIXES.contains(&first)
+}
+
+/// Expands a dotted key into a nested object path without overwriting values
+/// already present; nested settings win over their dotted equivalents.
+fn merge_dotted_key(
+    target: &mut zed::serde_json::Map<String, zed::serde_json::Value>,
+    dotted_key: &str,
+    value: zed::serde_json::Value,
+) {
+    let mut parts = dotted_key.split('.').peekable();
+    let mut current = target;
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            current.entry(part.to_string()).or_insert(value);
+            return;
+        }
+        let entry = current
+            .entry(part.to_string())
+            .or_insert_with(|| zed::serde_json::Value::Object(zed::serde_json::Map::new()));
+        match entry.as_object_mut() {
+            Some(object) => current = object,
+            None => return,
+        }
+    }
+}
+
 /// Validates `GOMEMLIMIT` according to the Go runtime's accepted syntax.
 pub fn ensure_go_mem_limit(value: &str) -> Result<()> {
     if value == "off" {
@@ -188,21 +307,133 @@ pub fn ensure_go_mem_limit(value: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zed_extension_api::serde_json::json;
+    use zed_extension_api::serde_json::{Value, json};
+
+    fn config(value: Value) -> Option<Value> {
+        workspace_configuration(Some(value))
+    }
+
+    fn at(config: &Option<Value>, pointer: &str) -> Value {
+        config
+            .as_ref()
+            .and_then(|value| value.pointer(pointer))
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
+    #[test]
+    fn workspace_configuration_defaults_when_unset() {
+        let defaults = workspace_configuration(None);
+        assert_eq!(
+            at(&defaults, "/typescript/inlayHints/parameterNames/enabled"),
+            json!("all")
+        );
+        assert_eq!(
+            at(&defaults, "/javascript/referencesCodeLens/enabled"),
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn workspace_configuration_strips_extension_settings() {
+        assert_eq!(
+            config(json!({
+                "package_version": "7.0.2",
+                "version": "7.0.2",
+                "updateChannel": "latest",
+                "tsdk": {"path": "./node_modules/typescript"},
+                "tsdk.path": "./node_modules/typescript",
+                "server": {"pprofDir": "./pprof"},
+                "server.goMemLimit": "2048MiB",
+            })),
+            workspace_configuration(None)
+        );
+    }
+
+    #[test]
+    fn workspace_configuration_merges_user_over_defaults() {
+        let merged = config(json!({
+            "typescript": {
+                "inlayHints": {"parameterNames": {"enabled": "none"}},
+                "preferences": {"quoteStyle": "single"},
+            },
+            "js/ts": {"implicitProjectConfig": {"checkJs": true}},
+        }));
+        assert_eq!(
+            at(&merged, "/typescript/inlayHints/parameterNames/enabled"),
+            json!("none")
+        );
+        assert_eq!(
+            at(&merged, "/typescript/inlayHints/variableTypes/enabled"),
+            json!(true)
+        );
+        assert_eq!(
+            at(&merged, "/typescript/preferences/quoteStyle"),
+            json!("single")
+        );
+        assert_eq!(
+            at(&merged, "/js~1ts/implicitProjectConfig/checkJs"),
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn workspace_configuration_expands_dotted_keys() {
+        let merged = config(json!({
+            "typescript.inlayHints.parameterNames.enabled": "literals",
+            "typescript.preferences.quoteStyle": "single",
+        }));
+        assert_eq!(
+            at(&merged, "/typescript/inlayHints/parameterNames/enabled"),
+            json!("literals")
+        );
+        assert_eq!(
+            at(&merged, "/typescript/preferences/quoteStyle"),
+            json!("single")
+        );
+    }
+
+    #[test]
+    fn workspace_configuration_slash_section_survives_expansion() {
+        let merged = config(json!({
+            "js/ts.implicitProjectConfig.strictNullChecks": true,
+        }));
+        assert_eq!(
+            at(&merged, "/js~1ts/implicitProjectConfig/strictNullChecks"),
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn workspace_configuration_nested_wins_over_dotted() {
+        let merged = config(json!({
+            "typescript": {"preferences": {"quoteStyle": "single"}},
+            "typescript.preferences.quoteStyle": "double",
+            "typescript.inlayHints.variableTypes.enabled": false,
+        }));
+        assert_eq!(
+            at(&merged, "/typescript/preferences/quoteStyle"),
+            json!("single")
+        );
+        assert_eq!(
+            at(&merged, "/typescript/inlayHints/variableTypes/enabled"),
+            json!(false)
+        );
+    }
 
     #[test]
     fn string_setting_nested_wins_and_type_errors() {
         let settings = Some(json!({
-            "tsdk": {"path": "./nested"},
-            "tsdk.path": "./dotted",
+            "server": {"pprofDir": "./nested"},
+            "server.pprofDir": "./dotted",
         }));
         assert_eq!(
-            string_setting(&settings, ExtensionSetting::TsdkPath).unwrap(),
+            string_setting(&settings, ExtensionSetting::PprofDir).unwrap(),
             Some("./nested".to_string())
         );
 
-        let settings = Some(json!({"tsdk": {"path": 5}}));
-        assert!(string_setting(&settings, ExtensionSetting::TsdkPath).is_err());
+        let settings = Some(json!({"server": {"pprofDir": 5}}));
+        assert!(string_setting(&settings, ExtensionSetting::PprofDir).is_err());
     }
 
     #[test]

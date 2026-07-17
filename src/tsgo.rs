@@ -193,10 +193,61 @@ impl zed::Extension for TsGoExtension {
         language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<Option<zed::serde_json::Value>> {
-        let settings = LspSettingsWithFallback::for_worktree(language_server_id, worktree)?
-            .into_setting(|settings| settings.settings)
-            .unwrap_or_default();
-        Ok(Some(settings))
+        let extension_settings =
+            LspSettingsWithFallback::for_worktree(language_server_id, worktree)?
+                .into_setting(|settings| settings.settings);
+        Ok(settings::workspace_configuration(extension_settings))
+    }
+
+    fn label_for_completion(
+        &self,
+        _language_server_id: &LanguageServerId,
+        completion: zed::lsp::Completion,
+    ) -> Option<zed::CodeLabel> {
+        use zed::lsp::CompletionKind as Kind;
+
+        let highlight_name = match completion.kind? {
+            Kind::Class | Kind::Interface | Kind::Enum | Kind::Constructor => "type",
+            Kind::Constant => "constant",
+            Kind::Function | Kind::Method => "function",
+            Kind::Property | Kind::Field => "property",
+            Kind::Variable => "variable",
+            _ => return None,
+        };
+
+        let label = completion.label;
+        let name_length = label.len();
+        let mut code = label.clone();
+        let mut spans = vec![zed::CodeLabelSpan::literal(
+            label,
+            Some(highlight_name.to_string()),
+        )];
+
+        if let Some(detail) = completion
+            .label_details
+            .as_ref()
+            .and_then(|details| details.detail.as_ref())
+        {
+            code.push_str(detail);
+            spans.push(zed::CodeLabelSpan::literal(detail.clone(), None));
+        }
+
+        if let Some(description) = completion
+            .label_details
+            .as_ref()
+            .and_then(|details| details.description.as_ref())
+            .or(completion.detail.as_ref())
+        {
+            let suffix = format!(" {description}");
+            code.push_str(&suffix);
+            spans.push(zed::CodeLabelSpan::literal(suffix, None));
+        }
+
+        Some(zed::CodeLabel {
+            code,
+            spans,
+            filter_range: (0..name_length).into(),
+        })
     }
 }
 
