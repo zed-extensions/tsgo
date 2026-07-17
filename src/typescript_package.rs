@@ -1,6 +1,159 @@
-use zed_extension_api::{self as zed, Result};
+use crate::settings::{self, ExtensionSetting};
+use zed_extension_api::{self as zed, LanguageServerId, Result};
 
 pub const TYPESCRIPT_PACKAGE: &str = "typescript";
+
+pub struct RequestedTypescriptSpec {
+    pub install_spec: String,
+    pub exact_version: Option<String>,
+}
+
+impl RequestedTypescriptSpec {
+    fn matches_installed(&self, installed: Option<&str>) -> bool {
+        self.exact_version.as_deref().is_some_and(|exact_version| {
+            installed.is_some_and(|installed| installed == exact_version)
+        })
+    }
+}
+
+pub fn requested_typescript_spec(
+    ext_settings: &Option<zed::serde_json::Value>,
+) -> Result<RequestedTypescriptSpec> {
+    let package_version = settings::string_setting(ext_settings, ExtensionSetting::PackageVersion)?;
+    let version = match package_version {
+        Some(version) => Some(version),
+        None => settings::string_setting(ext_settings, ExtensionSetting::Version)?,
+    };
+
+    if let Some(version) = version {
+        let version = version.trim();
+        if version.is_empty() {
+            return Err("TypeScript version setting must not be empty".into());
+        }
+        if !declared_spec_may_resolve_to_typescript_7(version) {
+            return Err(format!(
+                "TypeScript LSP requires a TypeScript 7 or newer version spec, got `{version}`"
+            ));
+        }
+        return Ok(RequestedTypescriptSpec {
+            install_spec: version.to_string(),
+            exact_version: exact_version(version),
+        });
+    }
+
+    let Some(channel) = settings::string_setting(ext_settings, ExtensionSetting::UpdateChannel)?
+    else {
+        return latest_stable_spec();
+    };
+
+    match channel.as_str() {
+        "latest" => latest_stable_spec(),
+        "next" => Ok(RequestedTypescriptSpec {
+            install_spec: "next".to_string(),
+            exact_version: None,
+        }),
+        _ => Err(format!(
+            "unsupported TypeScript update channel `{channel}`; expected `latest` or `next`"
+        )),
+    }
+}
+
+fn latest_stable_spec() -> Result<RequestedTypescriptSpec> {
+    match zed::npm_package_latest_version(TYPESCRIPT_PACKAGE) {
+        Ok(latest) => {
+            ensure_typescript_7_or_newer(&latest)?;
+            Ok(RequestedTypescriptSpec {
+                install_spec: latest.clone(),
+                exact_version: Some(latest),
+            })
+        }
+        Err(error) => match zed::npm_package_installed_version(TYPESCRIPT_PACKAGE) {
+            Ok(Some(installed)) if ensure_typescript_7_or_newer(&installed).is_ok() => {
+                Ok(RequestedTypescriptSpec {
+                    install_spec: installed.clone(),
+                    exact_version: Some(installed),
+                })
+            }
+            _ => Err(error),
+        },
+    }
+}
+
+pub fn install_managed_typescript(
+    language_server_id: &LanguageServerId,
+    requested: &RequestedTypescriptSpec,
+) -> Result<String> {
+    let current = zed::npm_package_installed_version(TYPESCRIPT_PACKAGE)?;
+    let is_tag = requested.exact_version.is_none();
+    let needs_install = is_tag || !requested.matches_installed(current.as_deref());
+
+    if needs_install {
+        zed::set_language_server_installation_status(
+            language_server_id,
+            &zed::LanguageServerInstallationStatus::Downloading,
+        );
+        zed::npm_install_package(TYPESCRIPT_PACKAGE, &requested.install_spec)?;
+    }
+
+    let installed = zed::npm_package_installed_version(TYPESCRIPT_PACKAGE)?;
+    let installed = installed
+        .as_deref()
+        .ok_or_else(|| "TypeScript was not installed after npm install completed".to_string())?;
+    ensure_typescript_7_or_newer(installed)?;
+
+    managed_package_dir()
+}
+
+pub fn managed_package_dir() -> Result<String> {
+    let path = std::env::current_dir()
+        .map_err(|error| format!("failed to read extension directory: {error}"))?
+        .join("node_modules")
+        .join(TYPESCRIPT_PACKAGE);
+
+    Ok(path.to_string_lossy().into_owned().replace('\\', "/"))
+}
+
+pub fn managed_package_is_usable() -> bool {
+    let Ok(package_dir) = managed_package_dir() else {
+        return false;
+    };
+    let package_json_path = format!("{package_dir}/package.json");
+    let Ok(package_json) = std::fs::read_to_string(&package_json_path) else {
+        return false;
+    };
+    let Ok(version) = typescript_version_from_package_json(&package_json, &package_json_path)
+    else {
+        return false;
+    };
+
+    ensure_typescript_7_or_newer(&version).is_ok()
+        && std::fs::metadata(format!("{package_dir}/bin/tsc"))
+            .is_ok_and(|metadata| metadata.is_file())
+}
+
+/// Normalizes a `tsdk.path` setting into the package root, accepting the
+/// package root, its `lib` directory, `bin`, or a `bin/tsc` launcher.
+pub fn tsdk_package_dir(worktree: &zed::Worktree, tsdk_path: &str) -> String {
+    let trimmed = tsdk_path.trim().trim_end_matches(['/', '\\']);
+    let root = worktree
+        .root_path()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+    let base = if trimmed.starts_with('/') || trimmed.starts_with('\\') || trimmed.contains(':') {
+        trimmed.to_string()
+    } else {
+        format!("{root}/{trimmed}")
+    };
+
+    let norm = base.replace('\\', "/");
+    for suffix in ["/bin/tsc.js", "/bin/tsc", "/lib", "/bin"] {
+        if let Some(stripped) = norm.strip_suffix(suffix) {
+            return stripped.to_string();
+        }
+    }
+    norm
+}
 
 /// Finds a usable project-local TypeScript 7+ package by scanning the root
 /// package manifest. npm aliases may use any dependency key, but their target
@@ -132,6 +285,34 @@ fn leading_major(spec: &str) -> Option<u64> {
         .take_while(|character| character.is_ascii_digit())
         .collect();
     (!digits.is_empty()).then(|| digits.parse().ok()).flatten()
+}
+
+/// Reads a package version through the worktree API when the path is in the
+/// project, or through WASI for extension-managed packages. An external
+/// `tsdk.path` cannot be inspected from the extension sandbox and returns
+/// `None`; the package's own launcher will validate it when Zed starts it.
+pub fn typescript_version_from_package_dir(
+    worktree: &zed::Worktree,
+    package_dir: &str,
+) -> Result<Option<String>> {
+    if let Some(relative_directory) = worktree_relative_directory(worktree, package_dir) {
+        let package_json_path = join_relative(&relative_directory, "package.json");
+        return match worktree.read_text_file(&package_json_path) {
+            Ok(content) => {
+                typescript_version_from_package_json(&content, &package_json_path).map(Some)
+            }
+            Err(_) => Ok(None),
+        };
+    }
+
+    let pkg_json = format!("{package_dir}/package.json");
+    match std::fs::read_to_string(&pkg_json) {
+        Ok(content) => typescript_version_from_package_json(&content, &pkg_json).map(Some),
+        Err(error) if path_is_in_extension_work_directory(package_dir) => {
+            Err(format!("failed to read {pkg_json}: {error}"))
+        }
+        Err(_) => Ok(None),
+    }
 }
 
 fn typescript_version_from_package_json(content: &str, path: &str) -> Result<String> {
@@ -278,6 +459,14 @@ fn path_is_in_extension_work_directory(path: &str) -> bool {
     path == current_directory || path.starts_with(&format!("{current_directory}/"))
 }
 
+fn join_relative(directory: &str, path: &str) -> String {
+    if directory.is_empty() {
+        path.to_string()
+    } else {
+        format!("{directory}/{path}")
+    }
+}
+
 pub fn ensure_typescript_7_or_newer(version: &str) -> Result<()> {
     let version_without_prefix = version.strip_prefix('v').unwrap_or(version);
     let major_part = version_without_prefix
@@ -296,6 +485,21 @@ pub fn ensure_typescript_7_or_newer(version: &str) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn exact_version(version: &str) -> Option<String> {
+    let version = version.strip_prefix('v').unwrap_or(version).trim();
+    if version.is_empty() || !version.chars().next().unwrap_or(' ').is_ascii_digit() {
+        return None;
+    }
+    let is_exact = version.chars().all(|character| {
+        character.is_ascii_digit()
+            || character == '.'
+            || character == '-'
+            || character == '+'
+            || character.is_ascii_alphabetic()
+    });
+    is_exact.then(|| version.to_string())
 }
 
 #[cfg(test)]
@@ -497,5 +701,51 @@ mod tests {
         assert!(ensure_typescript_7_or_newer("v7.0").is_ok());
         assert!(ensure_typescript_7_or_newer("6.9.9").is_err());
         assert!(ensure_typescript_7_or_newer("foo").is_err());
+    }
+
+    #[test]
+    fn identifies_exact_versions() {
+        assert_eq!(exact_version("7.0.2"), Some("7.0.2".into()));
+        assert_eq!(exact_version("v7.0.2"), Some("7.0.2".into()));
+        assert_eq!(exact_version("7.0.0-beta.1"), Some("7.0.0-beta.1".into()));
+        assert_eq!(exact_version("latest"), None);
+        assert_eq!(exact_version("next"), None);
+        assert_eq!(exact_version("^7"), None);
+    }
+
+    #[test]
+    fn package_version_takes_precedence_over_version_and_channel() {
+        let settings = Some(zed::serde_json::json!({
+            "package_version": "7.0.2",
+            "version": "7.0.1",
+            "updateChannel": "next",
+        }));
+        let requested = requested_typescript_spec(&settings).unwrap();
+        assert_eq!(requested.install_spec, "7.0.2");
+        assert_eq!(requested.exact_version.as_deref(), Some("7.0.2"));
+    }
+
+    #[test]
+    fn accepts_version_alias_and_next_channel() {
+        let settings = Some(zed::serde_json::json!({"version": "^7"}));
+        let requested = requested_typescript_spec(&settings).unwrap();
+        assert_eq!(requested.install_spec, "^7");
+        assert_eq!(requested.exact_version, None);
+
+        let settings = Some(zed::serde_json::json!({"updateChannel": "next"}));
+        let requested = requested_typescript_spec(&settings).unwrap();
+        assert_eq!(requested.install_spec, "next");
+        assert_eq!(requested.exact_version, None);
+    }
+
+    #[test]
+    fn rejects_managed_typescript_6_specs() {
+        for settings in [
+            zed::serde_json::json!({"package_version": "6.0.2"}),
+            zed::serde_json::json!({"version": "^6"}),
+            zed::serde_json::json!({"version": "<7"}),
+        ] {
+            assert!(requested_typescript_spec(&Some(settings)).is_err());
+        }
     }
 }
