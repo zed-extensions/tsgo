@@ -10,6 +10,10 @@ pub enum ExtensionSetting {
     Version,
     UpdateChannel,
     TsdkPath,
+    PprofDir,
+    GoMemLimit,
+    ServerArgs,
+    ServerEnv,
 }
 
 impl ExtensionSetting {
@@ -19,6 +23,10 @@ impl ExtensionSetting {
             Self::Version => "version",
             Self::UpdateChannel => "updateChannel",
             Self::TsdkPath => "tsdk.path",
+            Self::PprofDir => "server.pprofDir",
+            Self::GoMemLimit => "server.goMemLimit",
+            Self::ServerArgs => "server.args",
+            Self::ServerEnv => "server.env",
         }
     }
 }
@@ -101,6 +109,82 @@ pub fn string_setting(
     }
 }
 
+pub fn string_array_setting(
+    settings: &Option<zed::serde_json::Value>,
+    setting: ExtensionSetting,
+) -> Result<Option<Vec<String>>> {
+    let Some(value) = setting_value(settings, setting) else {
+        return Ok(None);
+    };
+    let error = || {
+        format!(
+            "setting `{}` must be an array of strings, got: {value}",
+            setting.path()
+        )
+    };
+    let items = value.as_array().ok_or_else(error)?;
+    items
+        .iter()
+        .map(|item| item.as_str().map(|s| s.to_string()).ok_or_else(error))
+        .collect::<Result<Vec<String>>>()
+        .map(Some)
+}
+
+pub fn string_map_setting(
+    settings: &Option<zed::serde_json::Value>,
+    setting: ExtensionSetting,
+) -> Result<Option<Vec<(String, String)>>> {
+    let Some(value) = setting_value(settings, setting) else {
+        return Ok(None);
+    };
+    let object = value.as_object().ok_or_else(|| {
+        format!(
+            "setting `{}` must be an object of string values, got: {value}",
+            setting.path()
+        )
+    })?;
+    object
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|s| (key.clone(), s.to_string()))
+                .ok_or_else(|| {
+                    format!(
+                        "setting `{}.{key}` must be a string, got: {value}",
+                        setting.path()
+                    )
+                })
+        })
+        .collect::<Result<Vec<(String, String)>>>()
+        .map(Some)
+}
+
+/// Validates `GOMEMLIMIT` according to the Go runtime's accepted syntax.
+pub fn ensure_go_mem_limit(value: &str) -> Result<()> {
+    if value == "off" {
+        return Ok(());
+    }
+
+    let digits_end = value
+        .find(|character: char| !character.is_ascii_digit())
+        .unwrap_or(value.len());
+    let (number, suffix) = value.split_at(digits_end);
+
+    if number.is_empty() {
+        return Err(format!(
+            "invalid GOMEMLIMIT value `{value}`: expected an integer byte count with an optional B/KiB/MiB/GiB/TiB suffix, or `off`"
+        ));
+    }
+
+    match suffix {
+        "" | "B" | "KiB" | "MiB" | "GiB" | "TiB" => Ok(()),
+        _ => Err(format!(
+            "invalid GOMEMLIMIT value `{value}`: the Go runtime only accepts B/KiB/MiB/GiB/TiB suffixes"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +203,42 @@ mod tests {
 
         let settings = Some(json!({"tsdk": {"path": 5}}));
         assert!(string_setting(&settings, ExtensionSetting::TsdkPath).is_err());
+    }
+
+    #[test]
+    fn string_array_setting_accepts_strings_only() {
+        let settings = Some(json!({"server": {"args": ["--pprofDir", "./p"]}}));
+        assert_eq!(
+            string_array_setting(&settings, ExtensionSetting::ServerArgs).unwrap(),
+            Some(vec!["--pprofDir".to_string(), "./p".to_string()])
+        );
+
+        let settings = Some(json!({"server": {"args": ["ok", 5]}}));
+        assert!(string_array_setting(&settings, ExtensionSetting::ServerArgs).is_err());
+    }
+
+    #[test]
+    fn string_map_setting_accepts_strings_only() {
+        let settings = Some(json!({"server": {"env": {"GOGC": "50"}}}));
+        assert_eq!(
+            string_map_setting(&settings, ExtensionSetting::ServerEnv).unwrap(),
+            Some(vec![("GOGC".to_string(), "50".to_string())])
+        );
+
+        let settings = Some(json!({"server": {"env": {"GOGC": 50}}}));
+        assert!(string_map_setting(&settings, ExtensionSetting::ServerEnv).is_err());
+    }
+
+    #[test]
+    fn validates_go_mem_limit() {
+        assert!(ensure_go_mem_limit("2048MiB").is_ok());
+        assert!(ensure_go_mem_limit("1024").is_ok());
+        assert!(ensure_go_mem_limit("1GiB").is_ok());
+        assert!(ensure_go_mem_limit("off").is_ok());
+        assert!(ensure_go_mem_limit("1.5GiB").is_err());
+        assert!(ensure_go_mem_limit("2048MB").is_err());
+        assert!(ensure_go_mem_limit("foo").is_err());
+        assert!(ensure_go_mem_limit(".5GiB").is_err());
+        assert!(ensure_go_mem_limit("GiB").is_err());
     }
 }

@@ -115,6 +115,78 @@ temporarily unavailable, the extension reuses an already-installed managed TypeS
 }
 ```
 
+## Runtime settings
+
+The extension owns a small set of launch and installation keys. Everything else in `settings` is
+forwarded to the language server through `workspace/configuration`.
+
+| Setting | Meaning |
+| --- | --- |
+| `package_version` / `version` | Managed npm version spec. |
+| `updateChannel` | Managed release channel: `"latest"` or `"next"`. |
+| `tsdk.path` | Explicit TypeScript package location. |
+| `server.pprofDir` | Adds `--pprofDir <path>` to the server command. |
+| `server.goMemLimit` | Sets `GOMEMLIMIT`; accepts integer bytes with an optional `B`, `KiB`, `MiB`, `GiB`, or `TiB` suffix, or `off`. |
+| `server.args` | Extra arguments appended after `--lsp --stdio`. |
+| `server.env` | Extra environment variables for the server process. |
+
+Dotted and nested forms are both accepted; the nested form wins when both are present.
+
+```jsonc
+{
+  "lsp": {
+    "typescript-ls": {
+      "settings": {
+        "tsdk": {
+          "path": "./node_modules/@typescript/native"
+        },
+        "server": {
+          "pprofDir": "./.typescript-pprof",
+          "goMemLimit": "2048MiB",
+          "args": [],
+          "env": {
+            "GOGC": "50"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+The environment precedence, from lowest to highest, is the worktree shell environment,
+`server.env`, `server.goMemLimit`, then `binary.env`.
+
+The current server flag surface in `--lsp` mode is `--stdio`, `--pipe <name>`,
+`--socket <address>`, and `--pprofDir <path>`. `server.args` can forward future flags without an
+extension release.
+
+## Custom binary
+
+`lsp.typescript-ls.binary` can override how the server is launched:
+
+```jsonc
+{
+  "lsp": {
+    "typescript-ls": {
+      "binary": {
+        // A tsc/tsc.js/tsc.exe path is launched as the server.
+        // Any other path is treated as a custom Node executable.
+        "path": "/path/to/tsc",
+        "arguments": ["--lsp", "--stdio"],
+        "env": {
+          "GOMEMLIMIT": "4GiB"
+        }
+      }
+    }
+  }
+}
+```
+
+Explicit `arguments` replace all extension-generated arguments. When `arguments` are omitted, a
+`tsc`, `tsc.js`, or `tsc.exe` path receives the normal server flags. Any other configured path is
+treated as Node and receives the resolved TypeScript `bin/tsc` launcher plus those flags.
+
 ## Legacy settings
 
 The extension previously used the server id `tsgo`. For compatibility, `binary`, `settings`, and

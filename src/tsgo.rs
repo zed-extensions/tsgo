@@ -73,14 +73,50 @@ impl TsGoExtension {
             .as_ref()
             .and_then(|settings| settings.get_setting(|settings| settings.settings.as_ref()))
             .cloned();
-        let binary_env = lsp_settings
-            .and_then(|settings| settings.into_setting(|settings| settings.binary))
-            .and_then(|binary| binary.env);
+        let binary =
+            lsp_settings.and_then(|settings| settings.into_setting(|settings| settings.binary));
+        let binary_env = binary.as_ref().and_then(|binary| binary.env.clone());
+
+        // A configured binary may be a direct tsc launcher or a custom Node
+        // executable. Explicit arguments always override extension defaults.
+        if let Some(path) = binary.as_ref().and_then(|binary| binary.path.clone()) {
+            let user_arguments = binary
+                .and_then(|binary| binary.arguments)
+                .unwrap_or_default();
+            let (command, arguments) = if !user_arguments.is_empty() {
+                (path, user_arguments)
+            } else {
+                let normalized = path.replace('\\', "/");
+                let is_tsc_launcher = normalized.ends_with("tsc")
+                    || normalized.ends_with("tsc.js")
+                    || normalized.ends_with("tsc.exe");
+                if is_tsc_launcher {
+                    (path, language_server_arguments(&extension_settings)?)
+                } else {
+                    let package_directory = self.resolve_package_dir(
+                        language_server_id,
+                        worktree,
+                        &extension_settings,
+                    )?;
+                    let shim = typescript_package::node_shim_path(worktree, &package_directory)?;
+                    let arguments = std::iter::once(shim)
+                        .chain(language_server_arguments(&extension_settings)?)
+                        .collect();
+                    (path, arguments)
+                }
+            };
+            let env = server_environment(worktree, &extension_settings, binary_env)?;
+            return Ok(zed::Command {
+                command,
+                args: arguments,
+                env,
+            });
+        }
 
         let package_directory =
             self.resolve_package_dir(language_server_id, worktree, &extension_settings)?;
-        let arguments = vec!["--lsp".into(), "--stdio".into()];
-        let env = server_environment(worktree, binary_env);
+        let arguments = language_server_arguments(&extension_settings)?;
+        let env = server_environment(worktree, &extension_settings, binary_env)?;
 
         // Prefer the native executable directly when the package layout can be
         // resolved without Node.
@@ -164,11 +200,50 @@ impl zed::Extension for TsGoExtension {
     }
 }
 
+fn language_server_arguments(
+    extension_settings: &Option<zed::serde_json::Value>,
+) -> Result<Vec<String>> {
+    let mut arguments = vec!["--lsp".into(), "--stdio".into()];
+
+    if let Some(pprof_directory) =
+        settings::string_setting(extension_settings, ExtensionSetting::PprofDir)?
+    {
+        arguments.push("--pprofDir".into());
+        arguments.push(pprof_directory);
+    }
+
+    if let Some(extra) =
+        settings::string_array_setting(extension_settings, ExtensionSetting::ServerArgs)?
+    {
+        arguments.extend(extra);
+    }
+
+    Ok(arguments)
+}
+
+/// Builds the server environment with ascending precedence: shell environment,
+/// `server.env`, `server.goMemLimit`, then `binary.env`.
 fn server_environment(
     worktree: &zed::Worktree,
+    extension_settings: &Option<zed::serde_json::Value>,
     binary_env: Option<std::collections::HashMap<String, String>>,
-) -> Vec<(String, String)> {
+) -> Result<Vec<(String, String)>> {
     let mut env = worktree.shell_env();
+
+    if let Some(extra) =
+        settings::string_map_setting(extension_settings, ExtensionSetting::ServerEnv)?
+    {
+        for (key, value) in extra {
+            upsert_environment_variable(&mut env, key, value);
+        }
+    }
+
+    if let Some(go_memory_limit) =
+        settings::string_setting(extension_settings, ExtensionSetting::GoMemLimit)?
+    {
+        settings::ensure_go_mem_limit(&go_memory_limit)?;
+        upsert_environment_variable(&mut env, "GOMEMLIMIT".into(), go_memory_limit);
+    }
 
     if let Some(binary_env) = binary_env {
         for (key, value) in binary_env {
@@ -176,7 +251,7 @@ fn server_environment(
         }
     }
 
-    env
+    Ok(env)
 }
 
 fn upsert_environment_variable(env: &mut Vec<(String, String)>, key: String, value: String) {
