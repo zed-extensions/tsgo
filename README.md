@@ -11,20 +11,20 @@ The server id is `typescript-ls`. To make it the primary TypeScript server:
 
 ```jsonc
 {
-  "languages": {
-    "JavaScript": {
-      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
-    },
-    "JSX": {
-      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
-    },
-    "TypeScript": {
-      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
-    },
-    "TSX": {
-      "language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
-    }
-  }
+	"languages": {
+		"JavaScript": {
+			"language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
+		},
+		"JSX": {
+			"language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
+		},
+		"TypeScript": {
+			"language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
+		},
+		"TSX": {
+			"language_servers": ["typescript-ls", "!vtsls", "!typescript-language-server", "..."]
+		}
+	}
 }
 ```
 
@@ -33,14 +33,14 @@ support:
 
 ```jsonc
 {
-  "languages": {
-    "TypeScript": {
-      "language_servers": ["typescript-ls", "vtsls", "!typescript-language-server", "..."]
-    },
-    "TSX": {
-      "language_servers": ["typescript-ls", "vtsls", "!typescript-language-server", "..."]
-    }
-  }
+	"languages": {
+		"TypeScript": {
+			"language_servers": ["typescript-ls", "vtsls", "!typescript-language-server", "..."]
+		},
+		"TSX": {
+			"language_servers": ["typescript-ls", "vtsls", "!typescript-language-server", "..."]
+		}
+	}
 }
 ```
 
@@ -70,16 +70,18 @@ The extension resolves the TypeScript 7+ package in this order:
    `dependencies`, `devDependencies`, and `peerDependencies`, including `npm:` aliases under any
    dependency name. Declarations that clearly select TypeScript 6 are skipped; when installed
    package metadata is visible through Zed's worktree API, its version is checked as well.
-3. A managed `typescript` install in the extension's working directory.
+3. A `tsc` executable on the worktree's `PATH` (including Nix and direnv environments). It is
+   probed with `--version` and used only when it reports TypeScript 7 or newer.
+4. A managed `typescript` install in the extension's working directory.
 
 This supports Microsoft's TypeScript 6/7 side-by-side setup, for example:
 
 ```json
 {
-  "devDependencies": {
-    "@typescript/native": "npm:typescript@^7",
-    "typescript": "npm:@typescript/typescript6@^6"
-  }
+	"devDependencies": {
+		"@typescript/native": "npm:typescript@^7",
+		"typescript": "npm:@typescript/typescript6@^6"
+	}
 }
 ```
 
@@ -93,25 +95,25 @@ support for those versions.
 Managed installs use the latest stable TypeScript release by default. These settings live under
 `lsp.typescript-ls.settings`:
 
-| Setting | Install behavior |
-| --- | --- |
-| `package_version` | Existing setting for any npm version spec, such as `7.0.2`, `next`, or `^7`. |
-| `version` | Alias for `package_version`; `package_version` wins when both are present. |
-| `updateChannel: "latest"` | Install the latest stable `typescript` package. |
-| `updateChannel: "next"` | Install `typescript@next`, TypeScript's nightly channel. |
+| Setting                   | Install behavior                                                             |
+| ------------------------- | ---------------------------------------------------------------------------- |
+| `package_version`         | Existing setting for any npm version spec, such as `7.0.2`, `next`, or `^7`. |
+| `version`                 | Alias for `package_version`; `package_version` wins when both are present.   |
+| `updateChannel: "latest"` | Install the latest stable `typescript` package.                              |
+| `updateChannel: "next"`   | Install `typescript@next`, TypeScript's nightly channel.                     |
 
 An explicit `package_version` or `version` wins over `updateChannel`. If the npm registry is
 temporarily unavailable, the extension reuses an already-installed managed TypeScript 7+ package.
 
 ```json
 {
-  "lsp": {
-    "typescript-ls": {
-      "settings": {
-        "updateChannel": "next"
-      }
-    }
-  }
+	"lsp": {
+		"typescript-ls": {
+			"settings": {
+				"updateChannel": "next"
+			}
+		}
+	}
 }
 ```
 
@@ -120,37 +122,37 @@ temporarily unavailable, the extension reuses an already-installed managed TypeS
 The extension owns a small set of launch and installation keys. Everything else in `settings` is
 forwarded to the language server through `workspace/configuration`.
 
-| Setting | Meaning |
-| --- | --- |
-| `package_version` / `version` | Managed npm version spec. |
-| `updateChannel` | Managed release channel: `"latest"` or `"next"`. |
-| `tsdk.path` | Explicit TypeScript package location. |
-| `server.pprofDir` | Adds `--pprofDir <path>` to the server command. |
-| `server.goMemLimit` | Sets `GOMEMLIMIT`; accepts integer bytes with an optional `B`, `KiB`, `MiB`, `GiB`, or `TiB` suffix, or `off`. |
-| `server.args` | Extra arguments appended after `--lsp --stdio`. |
-| `server.env` | Extra environment variables for the server process. |
+| Setting                       | Meaning                                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `package_version` / `version` | Managed npm version spec.                                                                                      |
+| `updateChannel`               | Managed release channel: `"latest"` or `"next"`.                                                               |
+| `tsdk.path`                   | Explicit TypeScript package location.                                                                          |
+| `server.pprofDir`             | Adds `--pprofDir <path>` to the server command.                                                                |
+| `server.goMemLimit`           | Sets `GOMEMLIMIT`; accepts integer bytes with an optional `B`, `KiB`, `MiB`, `GiB`, or `TiB` suffix, or `off`. |
+| `server.args`                 | Extra arguments appended after `--lsp --stdio`.                                                                |
+| `server.env`                  | Extra environment variables for the server process.                                                            |
 
 Dotted and nested forms are both accepted; the nested form wins when both are present.
 
 ```jsonc
 {
-  "lsp": {
-    "typescript-ls": {
-      "settings": {
-        "tsdk": {
-          "path": "./node_modules/@typescript/native"
-        },
-        "server": {
-          "pprofDir": "./.typescript-pprof",
-          "goMemLimit": "2048MiB",
-          "args": [],
-          "env": {
-            "GOGC": "50"
-          }
-        }
-      }
-    }
-  }
+	"lsp": {
+		"typescript-ls": {
+			"settings": {
+				"tsdk": {
+					"path": "./node_modules/@typescript/native"
+				},
+				"server": {
+					"pprofDir": "./.typescript-pprof",
+					"goMemLimit": "2048MiB",
+					"args": [],
+					"env": {
+						"GOGC": "50"
+					}
+				}
+			}
+		}
+	}
 }
 ```
 
@@ -167,19 +169,19 @@ extension release.
 
 ```jsonc
 {
-  "lsp": {
-    "typescript-ls": {
-      "binary": {
-        // A tsc/tsc.js/tsc.exe path is launched as the server.
-        // Any other path is treated as a custom Node executable.
-        "path": "/path/to/tsc",
-        "arguments": ["--lsp", "--stdio"],
-        "env": {
-          "GOMEMLIMIT": "4GiB"
-        }
-      }
-    }
-  }
+	"lsp": {
+		"typescript-ls": {
+			"binary": {
+				// A tsc/tsc.js/tsc.exe path is launched as the server.
+				// Any other path is treated as a custom Node executable.
+				"path": "/path/to/tsc",
+				"arguments": ["--lsp", "--stdio"],
+				"env": {
+					"GOMEMLIMIT": "4GiB"
+				}
+			}
+		}
+	}
 }
 ```
 

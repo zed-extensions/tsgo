@@ -6,7 +6,6 @@ schema_version = 1
 authors = ["Zed Industries <hello@zed.dev>"]
 repository = "https://github.com/zed-extensions/tsgo"
 
-
 [language_servers.typescript-ls]
 name = "TypeScript LS"
 # The native TypeScript server determines ScriptKind from LSP languageId (textDocument/didOpen).
@@ -21,3 +20,8 @@ languages = ["TypeScript", "TSX", "JavaScript", "JSX"]
 [[capabilities]]
 kind = "npm:install"
 package = "typescript"
+
+[[capabilities]]
+kind = "process:exec"
+command = "*"
+args = ["--version"]

@@ -17,22 +17,7 @@ impl TsGoExtension {
         worktree: &zed::Worktree,
         extension_settings: &Option<zed::serde_json::Value>,
     ) -> Result<String> {
-        if let Some(tsdk_path) =
-            settings::string_setting(extension_settings, ExtensionSetting::TsdkPath)?
-        {
-            let directory = typescript_package::tsdk_package_dir(worktree, &tsdk_path);
-            if let Some(version) =
-                typescript_package::typescript_version_from_package_dir(worktree, &directory)
-                    .map_err(|error| {
-                        format!("tsdk.path `{tsdk_path}` resolved to `{directory}`: {error}")
-                    })?
-            {
-                typescript_package::ensure_typescript_7_or_newer(&version)?;
-            }
-            return Ok(directory);
-        }
-
-        if let Some(directory) = typescript_package::find_local_typescript_package_dir(worktree) {
+        if let Some(directory) = declared_package_dir(worktree, extension_settings)? {
             return Ok(directory);
         }
 
@@ -113,10 +98,22 @@ impl TsGoExtension {
             });
         }
 
-        let package_directory =
-            self.resolve_package_dir(language_server_id, worktree, &extension_settings)?;
         let arguments = language_server_arguments(&extension_settings)?;
         let env = server_environment(worktree, &extension_settings, binary_env)?;
+
+        let package_directory = match declared_package_dir(worktree, &extension_settings)? {
+            Some(directory) => directory,
+            None => match typescript_package::find_path_tsc(worktree) {
+                Some(tsc) => {
+                    return Ok(zed::Command {
+                        command: tsc,
+                        args: arguments,
+                        env,
+                    });
+                }
+                None => self.install_managed(language_server_id, &extension_settings)?,
+            },
+        };
 
         // Prefer the native executable directly when the package layout can be
         // resolved without Node.
@@ -198,6 +195,31 @@ impl zed::Extension for TsGoExtension {
             .unwrap_or_default();
         Ok(Some(settings))
     }
+}
+
+/// Resolves a TypeScript 7+ package declared by the project: an explicit
+/// `tsdk.path`, or a dependency in the root `package.json`.
+fn declared_package_dir(
+    worktree: &zed::Worktree,
+    extension_settings: &Option<zed::serde_json::Value>,
+) -> Result<Option<String>> {
+    if let Some(tsdk_path) =
+        settings::string_setting(extension_settings, ExtensionSetting::TsdkPath)?
+    {
+        let directory = typescript_package::tsdk_package_dir(worktree, &tsdk_path);
+        if let Some(version) = typescript_package::typescript_version_from_package_dir(
+            worktree, &directory,
+        )
+        .map_err(|error| format!("tsdk.path `{tsdk_path}` resolved to `{directory}`: {error}"))?
+        {
+            typescript_package::ensure_typescript_7_or_newer(&version)?;
+        }
+        return Ok(Some(directory));
+    }
+
+    Ok(typescript_package::find_local_typescript_package_dir(
+        worktree,
+    ))
 }
 
 fn language_server_arguments(

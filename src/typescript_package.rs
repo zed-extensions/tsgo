@@ -287,6 +287,35 @@ fn leading_major(spec: &str) -> Option<u64> {
     (!digits.is_empty()).then(|| digits.parse().ok()).flatten()
 }
 
+/// Finds a `tsc` on the worktree `PATH`, accepting it only when a
+/// `--version` probe reports TypeScript 7 or newer.
+pub fn find_path_tsc(worktree: &zed::Worktree) -> Option<String> {
+    let path = worktree.which("tsc")?;
+    let output = zed::process::Command::new(&path)
+        .arg("--version")
+        .envs(worktree.shell_env())
+        .output()
+        .ok()?;
+    if output.status != Some(0) {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let version = version_from_tsc_output(&stdout)?;
+    ensure_typescript_7_or_newer(&version)
+        .is_ok()
+        .then_some(path)
+}
+
+fn version_from_tsc_output(output: &str) -> Option<String> {
+    let mut tokens = output.split_whitespace();
+    while let Some(token) = tokens.next() {
+        if token == "Version" {
+            return tokens.next().map(str::to_string);
+        }
+    }
+    None
+}
+
 /// Reads a package version through the worktree API when the path is in the
 /// project, or through WASI for extension-managed packages. An external
 /// `tsdk.path` cannot be inspected from the extension sandbox and returns
@@ -691,6 +720,24 @@ mod tests {
             find_typescript_dependency(&manifest, &project.root(), test_package_is_usable),
             Some(usable_dir)
         );
+    }
+
+    #[test]
+    fn parses_tsc_version_output() {
+        assert_eq!(
+            version_from_tsc_output("Version 7.0.0-dev.20260130.1\n"),
+            Some("7.0.0-dev.20260130.1".into())
+        );
+        assert_eq!(
+            version_from_tsc_output("Version 6.0.3"),
+            Some("6.0.3".into())
+        );
+        assert_eq!(
+            version_from_tsc_output("tsc: The TypeScript Compiler - Version 7.0.0-dev.20260130.1"),
+            Some("7.0.0-dev.20260130.1".into())
+        );
+        assert_eq!(version_from_tsc_output("Version"), None);
+        assert_eq!(version_from_tsc_output("command not found"), None);
     }
 
     #[test]
