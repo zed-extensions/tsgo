@@ -184,3 +184,20 @@ You can override the default code lens settings in your Zed settings:
 ```
 
 Use the same settings under `javascript` to override them for JavaScript.
+
+#### Using `tsrs` as the Language Server
+
+[`tsrs`](https://github.com/oxc-project/tsrs) is a Rust port of the `tsgo`.
+
+You can override the default lsp to `tsrs` in your Zed settings:
+
+```json
+  "lsp": {
+    "typescript-ls": {
+      "binary": {
+        "path": "/path/to/tsrs",
+        "arguments": ["--lsp", "--stdio"],
+      },
+    },
+  },
+```
